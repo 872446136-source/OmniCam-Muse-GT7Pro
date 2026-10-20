@@ -2,9 +2,8 @@
 
 MODDIR=${0%/*}
 
-# Lite 构建（module/lite）：不挂 /odm，下面的开关一个都不写。
-# 它们打开的 GR / POP / 移轴模式在目标机的相机配置里并不存在，写进去只会让相机去建没有配置的模式。
-[ -f "$MODDIR/lite" ] && exit 0
+# 测试分支：GR / POP / 移轴这些开关照上游写，不判断机型。
+[ -f /data/adb/omnicam_fullport_off ] && exit 0
 
 PREF_DIR=/data/user/0/com.oplus.camera/shared_prefs
 PREF_FILE="$PREF_DIR/override_config_data.xml"

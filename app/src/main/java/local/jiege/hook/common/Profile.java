@@ -3,24 +3,23 @@ package local.jiege.hook.common;
 /**
  * Which feature set this build installs.
  *
- * LITE is for a device the module carries no /odm payload and no patched native libraries for.
- * Nothing is bind-mounted, libjiege_native is not loaded, and only the hooks that live entirely
- * inside the camera / gallery app are installed — the ones that read the app's own classes and
- * write nothing outside the app's data.
+ * This is the test/full-port branch: LITE is false, so the whole upstream feature set is installed —
+ * every camera and gallery hook, the native library (assets/native_init is present), and the
+ * bind-mounted /odm payload plus the X9 Ultra libraries under module/system/.
  *
- * A build whose payload matches the device (payload regenerated from that device's own /odm, native
- * libraries re-patched from its own libraries) sets this to false and gets the full feature set.
- * Keep it in sync with the "lite" marker in module/ — the shell scripts skip every mount when the
- * marker is there, and the camera would then run without the files these hooks expect.
+ * Nothing here is adapted to the GT7 Pro: the payload is the Find X9 Ultra original and the native
+ * half still carries the 25021 decision-family offsets. The point of the branch is to find out on a
+ * real device which parts survive and which ones take the camera down, not to ship anything.
  *
- * assets/native_init is removed in this build: LSPosed loads the libraries it lists into every
- * scoped process on its own, before any Java hook runs, and the native half redirects ODM paths and
- * patches the tuning libraries — all of which expect the payload. Restore that file together with
- * LITE = false.
+ * A build for a device the module has no payload for (the main branch) sets this to true: no mounts,
+ * no native library, app-only hooks.
+ *
+ * Kill switch, no need to uninstall the module:
+ *   adb shell su -c "touch /data/adb/omnicam_fullport_off"  then reboot
  */
 public final class Profile {
-    /** No /odm mounts, no native library: app-only hooks. */
-    public static final boolean LITE = true;
+    /** Full upstream feature set on top of the X9 Ultra payload. */
+    public static final boolean LITE = false;
 
     private Profile() {}
 }

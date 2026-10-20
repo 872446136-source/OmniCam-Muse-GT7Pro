@@ -57,20 +57,13 @@ bind_merged_dir() {
 : > "$LOG"
 log "begin"
 
-# Lite 构建（module/lite）：这份 payload 是按别的机型生成的，一个文件都不挂。
-if [ -f "$MODDIR/lite" ]; then
-    log "lite build, nothing mounted"
+# 测试分支：上游 payload 原样往上挂，不做机型判断、不做能力探测。
+# 每个文件单独 bind，失败的记在 bind.log 里，不影响其它文件。
+# 一键关掉（不用卸载模块）：adb shell su -c "touch /data/adb/omnicam_fullport_off"，然后重启。
+if [ -f /data/adb/omnicam_fullport_off ]; then
+    log "kill switch /data/adb/omnicam_fullport_off present, nothing mounted"
     exit 0
 fi
-
-# 机型守卫：payload 要覆盖的文件必须全部存在于本机，否则不挂。
-# 不匹配的 camera_unit_config / ISP 调校盖到 /odm 上，相机会起不来。
-for LENS in main wide tele ultratele; do
-    if [ ! -f "/odm/lib64/camera/com.qti.tuned.lighthouse${LENS}.bin" ]; then
-        log "payload does not match this device (missing lighthouse${LENS}), nothing mounted"
-        exit 0
-    fi
-done
 
 for NAME in camera_unit_config camera_unit_feature_config.protobuf oplus_camera_config oplus_camera_algo_switch_config oplus_camera_aps_config oplus_camera_preview_decision_config.json; do
     bind_file "$MODDIR/payload/$NAME" "/odm/etc/camera/config/$NAME"

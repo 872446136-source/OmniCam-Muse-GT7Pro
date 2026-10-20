@@ -1,0 +1,81 @@
+--- a/app/src/main/assets/symbols.json
++++ b/app/src/main/assets/symbols.json
+@@ -349,13 +349,13 @@
+     "com.oplus.camera.feature.filter"
+    ]
+   },
+   "CaptureParams.refreshEffectEntry": {
+    "kind": "method",
+    "in": "@CaptureParams",
+-   "name": "Q3",
++   "name": "H2",
+    "params": [],
+    "ret": "void"
+   },
+   "CaptureParams.menuClick": {
+    "kind": "method",
+    "in": "@CaptureParams",
+@@ -999,12 +999,13 @@
+    ]
+   },
+   "SoftLight.typesForMode": {
+    "kind": "method",
+    "params": [
+     "int",
++    null,
+     "java.lang.String"
+    ],
+    "ret": "java.util.List",
+    "static": true,
+    "multi": true,
+    "fields": [
+@@ -1057,13 +1058,13 @@
+   },
+   "FeaturePresenter.modeName": {
+    "kind": "field",
+    "in": "@FeaturePresenter",
+    "type": "java.lang.String",
+    "readBy": [
+-    "@FilterPresenter.softLightIndex"
++    "@FeaturePresenter.getCameraMode"
+    ]
+   },
+   "FilterBeans": {
+    "kind": "class",
+    "strings": [
+     "getGrandTourFilterKey, Front camera. Ignore"
+@@ -1627,13 +1628,13 @@
+    "name": "I6",
+    "type": "android.graphics.Bitmap"
+   },
+   "Zoom.fadeLabels": {
+    "kind": "method",
+    "in": "com.oplus.camera.feature.zoom.view.ZoomSeekBar",
+-   "name": "b",
++   "name": "f4",
+    "params": [],
+    "ret": "void"
+   },
+   "ZoomBase.fadeLabels": {
+    "kind": "method",
+    "in": "@ZoomBase",
+@@ -2161,12 +2162,19 @@
+    "in": "@Vibrate",
+    "params": [
+     "int",
+     "int"
+    ],
+    "ret": "void"
++  },
++  "FeaturePresenter.getCameraMode": {
++   "kind": "method",
++   "in": "@FeaturePresenter",
++   "name": "getCameraMode",
++   "params": [],
++   "ret": "java.lang.String"
+   }
+  },
+  "gallery": {
+   "FilterRecoverGate": {
+    "kind": "method",
+    "static": true,

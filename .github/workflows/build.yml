@@ -1,0 +1,82 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: assemble + sign + module zip
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-37 build-tools;36.0.0'
+
+      - name: Accept licenses and make sure the platform is there
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platforms;android-37" || true
+          sdkmanager --list_installed || true
+
+      - name: Strip the native build (Lite ships no native library)
+        run: python3 .github/strip_native.py app/build.gradle.kts
+
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: assembleRelease
+        run: |
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --console=plain --stacktrace
+
+      - name: Sign the APK
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)
+          echo "build-tools: $BUILD_TOOLS"
+          cp app/build/outputs/apk/release/app-release-unsigned.apk unsigned.apk
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks signing/port.p12 --ks-type PKCS12 \
+            --ks-pass pass:omnicam --key-pass pass:omnicam \
+            --out OmniCam-Muse-Lite.apk unsigned.apk
+          "$BUILD_TOOLS/apksigner" verify --print-certs OmniCam-Muse-Lite.apk
+
+      - name: Package the KernelSU module
+        run: |
+          VER=$(sed -n 's/^version=//p' module/module.prop)
+          echo "module version: $VER"
+          cp OmniCam-Muse-Lite.apk "module/omnicam-muse-$VER.apk"
+          python3 tools/zip_module.py module "OmniCam-Muse-$VER-KSU.zip"
+          unzip -l "OmniCam-Muse-$VER-KSU.zip"
+          ls -la OmniCam-Muse-*.zip OmniCam-Muse-Lite.apk
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmniCam-Muse-GT7Pro
+          if-no-files-found: error
+          path: |
+            OmniCam-Muse-*-KSU.zip
+            OmniCam-Muse-Lite.apk

@@ -1,0 +1,6 @@
+id=ricoh_pop_x9u
+name=OmniCam Muse Lite
+version=Muse 4.0 GT7Pro
+versionCode=310
+author=local-port
+description=真我 GT7 Pro 轻量版：只装纯应用层钩子（快门声、快启键、机型伪装、水印解锁、批量水印、地址跳转、4K60 滤镜）。不挂 /odm、不加载原生库。

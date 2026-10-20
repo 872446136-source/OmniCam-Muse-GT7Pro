@@ -1,0 +1,269 @@
+diff --git a/app/src/main/assets/native_init b/app/src/main/assets/native_init
+deleted file mode 100644
+index d304568..0000000
+--- a/app/src/main/assets/native_init
++++ /dev/null
+@@ -1 +0,0 @@
+-libjiege_native.so
+diff --git a/app/src/main/assets/symbols.json b/app/src/main/assets/symbols.json
+index a7db2d9..1383601 100644
+--- a/app/src/main/assets/symbols.json
++++ b/app/src/main/assets/symbols.json
+@@ -352,7 +352,7 @@
+   "CaptureParams.refreshEffectEntry": {
+    "kind": "method",
+    "in": "@CaptureParams",
+-   "name": "Q3",
++   "name": "H2",
+    "params": [],
+    "ret": "void"
+   },
+@@ -1002,6 +1002,7 @@
+    "kind": "method",
+    "params": [
+     "int",
++    null,
+     "java.lang.String"
+    ],
+    "ret": "java.util.List",
+@@ -1060,7 +1061,7 @@
+    "in": "@FeaturePresenter",
+    "type": "java.lang.String",
+    "readBy": [
+-    "@FilterPresenter.softLightIndex"
++    "@FeaturePresenter.getCameraMode"
+    ]
+   },
+   "FilterBeans": {
+@@ -1630,7 +1631,7 @@
+   "Zoom.fadeLabels": {
+    "kind": "method",
+    "in": "com.oplus.camera.feature.zoom.view.ZoomSeekBar",
+-   "name": "b",
++   "name": "f4",
+    "params": [],
+    "ret": "void"
+   },
+@@ -2164,6 +2165,13 @@
+     "int"
+    ],
+    "ret": "void"
++  },
++  "FeaturePresenter.getCameraMode": {
++   "kind": "method",
++   "in": "@FeaturePresenter",
++   "name": "getCameraMode",
++   "params": [],
++   "ret": "java.lang.String"
+   }
+  },
+  "gallery": {
+diff --git a/app/src/main/java/local/jiege/hook/ModuleEntry.java b/app/src/main/java/local/jiege/hook/ModuleEntry.java
+index e7e4fc7..fb3a02d 100644
+--- a/app/src/main/java/local/jiege/hook/ModuleEntry.java
++++ b/app/src/main/java/local/jiege/hook/ModuleEntry.java
+@@ -5,6 +5,7 @@ import de.robv.android.xposed.IXposedHookZygoteInit;
+ import de.robv.android.xposed.callbacks.XC_LoadPackage;
+ import local.jiege.hook.common.CameraLogMirror;
+ import local.jiege.hook.common.Log;
++import local.jiege.hook.common.Profile;
+ import local.jiege.hook.common.Symbols;
+ import local.jiege.hook.filters.FilterGroupInjector;
+ import local.jiege.hook.gr.GrPort;
+@@ -82,6 +83,10 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
+         } else if (GALLERY.equals(param.packageName)) {
+             Symbols.install("gallery", classLoader, param.appInfo.sourceDir, param.appInfo.dataDir);
+             AddressNavigation.installGallery(classLoader);
++            if (Profile.LITE) {
++                installLiteGallery(classLoader);
++                return;
++            }
+             if (!UnmountedGuard.filesMounted()) {
+                 UnmountedGuard.installGallery();
+                 return;
+@@ -91,6 +96,11 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
+             WatermarkSeriesUnlock.installGallery(classLoader);
+             BatchWatermark.installGallery(classLoader);
+         } else if (CAMERA.equals(param.packageName)) {
++            if (Profile.LITE) {
++                Symbols.install("camera", classLoader, param.appInfo.sourceDir, param.appInfo.dataDir);
++                installLiteCamera(classLoader);
++                return;
++            }
+             // Without the module's /odm files the native hooks would feed the stock libraries the
+             // ported POP settings and LUTs, so the guard decides first.
+             if (!UnmountedGuard.filesMounted()) {
+@@ -129,4 +139,30 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
+             MasterContrast.installCamera(classLoader);
+         }
+     }
++
++    /**
++     * Lite camera: the features that live entirely in the camera app. Every one of them reads only
++     * the app's own classes and settings — no /odm file, no patched library — so they behave the
++     * same on a device whose camera config the module does not carry.
++     *
++     * Left out on purpose: everything that renders through the module's LUTs / basictone payload
++     * (POP, GR, X10, palette, master colour, master filter LUTs, soft light, master LUT slots and
++     * contrast), everything that patches a library (25MP, 200MP face gate), and everything that
++     * needs a mode the stock config does not have (XPAN, tilt-shift).
++     */
++    private static void installLiteCamera(ClassLoader classLoader) {
++        KeyLaunchMode.installCamera(classLoader);
++        ShutterSound.installCamera(classLoader);
++        ModeStateSplit.installCamera(classLoader);
++        VideoFilterHighSpec.installCamera(classLoader);
++        ModelSpoof.installCamera(classLoader);
++        VideoWatermarkGuard.installCamera(classLoader);
++        Log.guard("CameraLog", "camera log mirror", () -> CameraLogMirror.install(classLoader));
++    }
++
++    /** Lite gallery: photo-detail address jump, watermark series unlock, batch watermark. */
++    private static void installLiteGallery(ClassLoader classLoader) {
++        WatermarkSeriesUnlock.installGallery(classLoader);
++        BatchWatermark.installGallery(classLoader);
++    }
+ }
+diff --git a/app/src/main/java/local/jiege/hook/common/Profile.java b/app/src/main/java/local/jiege/hook/common/Profile.java
+new file mode 100644
+index 0000000..2721b1d
+--- /dev/null
++++ b/app/src/main/java/local/jiege/hook/common/Profile.java
+@@ -0,0 +1,26 @@
++package local.jiege.hook.common;
++
++/**
++ * Which feature set this build installs.
++ *
++ * LITE is for a device the module carries no /odm payload and no patched native libraries for.
++ * Nothing is bind-mounted, libjiege_native is not loaded, and only the hooks that live entirely
++ * inside the camera / gallery app are installed — the ones that read the app's own classes and
++ * write nothing outside the app's data.
++ *
++ * A build whose payload matches the device (payload regenerated from that device's own /odm, native
++ * libraries re-patched from its own libraries) sets this to false and gets the full feature set.
++ * Keep it in sync with the "lite" marker in module/ — the shell scripts skip every mount when the
++ * marker is there, and the camera would then run without the files these hooks expect.
++ *
++ * assets/native_init is removed in this build: LSPosed loads the libraries it lists into every
++ * scoped process on its own, before any Java hook runs, and the native half redirects ODM paths and
++ * patches the tuning libraries — all of which expect the payload. Restore that file together with
++ * LITE = false.
++ */
++public final class Profile {
++    /** No /odm mounts, no native library: app-only hooks. */
++    public static final boolean LITE = true;
++
++    private Profile() {}
++}
+diff --git a/app/src/main/kotlin/local/jiege/ui/Diagnostics.kt b/app/src/main/kotlin/local/jiege/ui/Diagnostics.kt
+index 74d5af2..dd8aef3 100644
+--- a/app/src/main/kotlin/local/jiege/ui/Diagnostics.kt
++++ b/app/src/main/kotlin/local/jiege/ui/Diagnostics.kt
+@@ -14,6 +14,7 @@ import java.util.Locale
+ import java.util.concurrent.TimeUnit
+ import java.util.zip.ZipEntry
+ import java.util.zip.ZipOutputStream
++import local.jiege.hook.common.Profile
+ import local.jiege.settings.DiagnosticsContract
+ import local.jiege.settings.MasterFilterContract
+ import local.jiege.settings.ModuleSettings
+@@ -59,8 +60,13 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
+             val checks = ArrayList<Check>()
+             val lsposed = MasterFilters.visibleToCamera(context)
+             checks += Check("LSPosed", lsposed, if (lsposed) "模块已激活" else "模块未激活，在 LSPosed 中启用并勾选相机、相册、系统框架")
+-            val mounted = moduleMounted()
+-            checks += Check("KSU 模块", mounted, if (mounted) "相机库已挂载" else "相机库未挂载，确认 KSU 模块已启用并重启手机")
++            if (Profile.LITE) {
++                // Lite build: nothing is bind-mounted on purpose, so the mount row would be a false alarm.
++                checks += Check("轻量模式", true, "未挂载 /odm，只装应用层功能")
++            } else {
++                val mounted = moduleMounted()
++                checks += Check("KSU 模块", mounted, if (mounted) "相机库已挂载" else "相机库未挂载，确认 KSU 模块已启用并重启手机")
++            }
+             val updated = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
+             // A process still running hooks from the previous module APK only needs a restart.
+             var stale = 0
+diff --git a/module/customize.sh b/module/customize.sh
+index 76b3f08..abe4b86 100644
+--- a/module/customize.sh
++++ b/module/customize.sh
+@@ -1,6 +1,14 @@
+ # Settings app and hooks: install the APK this module ships while the module is flashed, so LSPosed
+ # points at it before the reboot that activates the module. A failed install (e.g. a different
+ # signing key) is left as it is and logged to install.log; the installed app is never uninstalled.
++
++# Lite 构建：payload / system 属于别的机型（见 app/src/main/java/local/jiege/hook/common/Profile.java），
++# 刷入时就删掉，别占着几百 MB 空间，也免得被误当成可用配置。
++if [ -f "$MODPATH/lite" ]; then
++    rm -rf "$MODPATH/payload" "$MODPATH/system"
++    ui_print "- Lite build: payload and patched libraries removed"
++fi
++
+ PACKAGE=local.jiege.camera
+ APK=$(ls "$MODPATH"/omnicam-muse-*.apk 2>/dev/null | head -n 1)
+ STAGED=/data/local/tmp/omnicam-muse-module.apk
+diff --git a/module/lite b/module/lite
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/module/lite
+@@ -0,0 +1 @@
++1
+diff --git a/module/module.prop b/module/module.prop
+index c4ab9e2..54e53c8 100644
+--- a/module/module.prop
++++ b/module/module.prop
+@@ -1,6 +1,6 @@
+ id=ricoh_pop_x9u
+-name=OmniCam Muse
+-version=Muse 4.0
+-versionCode=300
++name=OmniCam Muse Lite
++version=Muse 4.0 GT7Pro
++versionCode=310
+ author=local-port
+-description=RICOH GR, POP, X10 and master filter features for PMA110, with a settings app.
++description=真我 GT7 Pro 轻量版：只装纯应用层钩子（快门声、快启键、机型伪装、水印解锁、批量水印、地址跳转、4K60 滤镜）。不挂 /odm、不加载原生库。
+diff --git a/module/post-fs-data.sh b/module/post-fs-data.sh
+index 6e1781e..d7c44d8 100644
+--- a/module/post-fs-data.sh
++++ b/module/post-fs-data.sh
+@@ -57,6 +57,21 @@ bind_merged_dir() {
+ : > "$LOG"
+ log "begin"
+ 
++# Lite 构建（module/lite）：这份 payload 是按别的机型生成的，一个文件都不挂。
++if [ -f "$MODDIR/lite" ]; then
++    log "lite build, nothing mounted"
++    exit 0
++fi
++
++# 机型守卫：payload 要覆盖的文件必须全部存在于本机，否则不挂。
++# 不匹配的 camera_unit_config / ISP 调校盖到 /odm 上，相机会起不来。
++for LENS in main wide tele ultratele; do
++    if [ ! -f "/odm/lib64/camera/com.qti.tuned.lighthouse${LENS}.bin" ]; then
++        log "payload does not match this device (missing lighthouse${LENS}), nothing mounted"
++        exit 0
++    fi
++done
++
+ for NAME in camera_unit_config camera_unit_feature_config.protobuf oplus_camera_config oplus_camera_algo_switch_config oplus_camera_aps_config oplus_camera_preview_decision_config.json; do
+     bind_file "$MODDIR/payload/$NAME" "/odm/etc/camera/config/$NAME"
+ done
+diff --git a/module/service.sh b/module/service.sh
+index 1d2ba7a..e4edd91 100644
+--- a/module/service.sh
++++ b/module/service.sh
+@@ -1,6 +1,11 @@
+ #!/system/bin/sh
+ 
+ MODDIR=${0%/*}
++
++# Lite 构建（module/lite）：不挂 /odm，下面的开关一个都不写。
++# 它们打开的 GR / POP / 移轴模式在目标机的相机配置里并不存在，写进去只会让相机去建没有配置的模式。
++[ -f "$MODDIR/lite" ] && exit 0
++
+ PREF_DIR=/data/user/0/com.oplus.camera/shared_prefs
+ PREF_FILE="$PREF_DIR/override_config_data.xml"
+ APP=/data/user/0/com.oplus.camera

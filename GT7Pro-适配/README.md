@@ -2,6 +2,10 @@
 
 真我 GT7 Pro（ColorOS 17.0.0.111 / 相机 7.006.112 / 相册 17.10.37）适配 OmniCam-Muse 的产物。
 
+**源码仓库**：https://github.com/872446136-source/OmniCam-Muse-GT7Pro
+**编译好的产物**：https://github.com/872446136-source/OmniCam-Muse-GT7Pro/releases/tag/v4.0-gt7pro-lite
+（`OmniCam-Muse-GT7Pro-KSU.zip` 刷模块，`OmniCam-Muse-Lite.apk` 是设置应用）
+
 **交付的是轻量版**：只装纯应用层钩子（快门声、快启键、模式状态分离、4K60 滤镜、机型伪装、水印解锁、批量水印、地址跳转），
 不挂 `/odm`、不加载原生库，可以安全刷入。GR / POP / 大师色彩等要动配置和原生库的功能在本机做不出来，原因见报告第五节。
 

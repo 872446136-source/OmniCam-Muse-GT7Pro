@@ -17,6 +17,8 @@
 >
 > **下载**：[Releases](https://github.com/872446136-source/OmniCam-Muse-GT7Pro/releases) —— `OmniCam-Muse-GT7Pro-KSU.zip` 刷模块，`OmniCam-Muse-Lite.apk` 是设置应用。
 >
+> **全功能测试分支**：[`test/full-port`](https://github.com/872446136-source/OmniCam-Muse-GT7Pro/tree/test/full-port) —— 把上游 payload、原生库、全部钩子原样搬过来，不做任何机型判断，用于在真机上收集崩溃点。风险与回滚见该分支的 [`TEST-BRANCH.md`](https://github.com/872446136-source/OmniCam-Muse-GT7Pro/blob/test/full-port/TEST-BRANCH.md)。
+>
 > **构建**：本仓库**不含** `module/payload/`（200 MB 的 LUT 与调音配置，属于 X9 Ultra，对 GT7 Pro 无用），所以 `build.ps1` 的色彩目录校验会失败。用 GitHub Actions（`.github/workflows/build.yml`，push 到 `main` 或手动触发）产出签名 APK + KSU 模块 zip；本地构建则直接 `./gradlew :app:assembleRelease` 再用 `apksigner` 签名。
 >
 > **签名**：`signing/port.p12`（PKCS12，别名 `omnicam`，口令 `omnicam`）随仓库提供，让每次构建的证书一致、可以直接覆盖安装。它是自签名密钥，不用于任何上架用途。

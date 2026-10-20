@@ -3,15 +3,26 @@
 真我 GT7 Pro（ColorOS 17.0.0.111 / 相机 7.006.112 / 相册 17.10.37）适配 OmniCam-Muse 的产物。
 
 **源码仓库**：https://github.com/872446136-source/OmniCam-Muse-GT7Pro
-**编译好的产物**：https://github.com/872446136-source/OmniCam-Muse-GT7Pro/releases/tag/v4.0-gt7pro-lite
-（`OmniCam-Muse-GT7Pro-KSU.zip` 刷模块，`OmniCam-Muse-Lite.apk` 是设置应用）
+**编译好的产物**：
+- 轻量版：https://github.com/872446136-source/OmniCam-Muse-GT7Pro/releases/tag/v4.0-gt7pro-lite
+- 无算法栈版：https://github.com/872446136-source/OmniCam-Muse-GT7Pro/releases/tag/nostack-test
+- 完整版测试包（会黑屏，仅留档）：https://github.com/872446136-source/OmniCam-Muse-GT7Pro/releases/tag/full-port-test
 
-**交付的是轻量版**：只装纯应用层钩子（快门声、快启键、模式状态分离、4K60 滤镜、机型伪装、水印解锁、批量水印、地址跳转），
-不挂 `/odm`、不加载原生库，可以安全刷入。GR / POP / 大师色彩等要动配置和原生库的功能在本机做不出来，原因见报告第五节。
+现在有三个包，都刷得进：
+
+| 包 | 内容 | 状态 |
+|---|---|---|
+| 轻量版 `v4.0-gt7pro-lite` | 只装纯应用层钩子，不挂 `/odm`、不加载原生库 | 稳，但功能少，**没有滤镜** |
+| **无算法栈版 `nostack-test`** | 轻量版 + 数据层（滤镜 LUT、X10 basictone、GR LMT、水印素材）+ GR 移植 | **推荐刷这个** |
+| 完整版测试包 `full-port-test` | 上游全量 + 原生库 + 上游相机配置 | 实测取景器全黑、进相机卡死，仅留档 |
+
+轻量版和无算法栈版都**不替换任何系统库**（无算法栈版只把 LUT / basictone 数据叠加到本机目录上）。
+完整版为什么黑屏、哪些功能在本机做不出来，见 `适配评估报告.md` 第五节和 `无算法栈版.md`。
 
 ## 先看哪个
 
-1. **`适配评估报告.md`** —— 结论、实测证据、逐功能兼容矩阵、下一步。**从这份开始。**
+0. **`无算法栈版.md`** —— 最新一版（完整版去掉 X9 Ultra 算法栈）：装什么、去掉什么、怎么确认。**要刷机就看这份。**
+1. **`适配评估报告.md`** —— 结论、实测证据、逐功能兼容矩阵、下一步。
 2. **`构建说明.md`** —— 打补丁、编译、刷入、排错，以及「这一版有什么、没什么」。
 3. **`采集设备信息.sh`** —— 已经用过（结果在报告第五节）；换机或重采时再用。
 
@@ -19,10 +30,12 @@
 
 | 文件 | 作用 |
 |---|---|
+| `无算法栈版.md` | 无算法栈版说明：产物、去掉的功能、保留的功能、确认步骤、取舍 |
 | `适配评估报告.md` | 主报告：钩子层验证结果 + 完整版为什么做不出来的实测证据 |
 | `构建说明.md` | 出包流程、Lite 功能清单、完整版还缺什么 |
 | `采集设备信息.sh` | 设备侧数据采集（需 root，输出 `/sdcard/omnicam_gt7pro_dump.tar.gz`） |
 | `清理残留.sh` | 卸载模块后补一次清理（模块自带 `uninstall.sh`，这个是手动兜底） |
+| `诊断.sh` | 一次性收集排查信息：模块状态、bind.log、挂载、崩溃日志、相机 provider 状态 |
 | `patch/gt7pro-lite.diff` | **主补丁**：10 个文件，轻量版全部改动（含 symbols.json 的 4 处修正） |
 | `symbols.json` | 按 7.006.112 修正后的完整符号表（覆盖到 `app/src/main/assets/symbols.json`） |
 | `patch/symbols-gt7pro.diff` | 只含 symbols.json 那 4 处修正的 diff（想单独看改动时用） |

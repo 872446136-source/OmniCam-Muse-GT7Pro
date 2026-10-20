@@ -1,0 +1,120 @@
+name: build-nostack
+
+# "Full port minus the Find X9 Ultra algorithm stack" build.
+#
+# No NDK and no CMake: this build has no libjiege_native.so (assets/native_init is gone, so LSPosed
+# never asks for it) and module/system/odm/lib64 is not packaged. Only the data layer is fetched from
+# upstream at build time — filter LUTs, X10 basictone, the GR LMT tree and the watermark artwork.
+#
+# Output is a pre-release with the flashable module zip.
+
+on:
+  push:
+    branches: ['test/nostack']
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-nostack
+  cancel-in-progress: true
+
+env:
+  UPSTREAM_SHA: 8f373e10b17c95532a3ff2f41c4777ca797da947
+  RELEASE_TAG: nostack-test
+
+jobs:
+  nostack:
+    name: data layer only (no native, no algorithm stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Android SDK (platform 37, build-tools 37)
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          SDKM=$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | tail -1)
+          echo "sdkmanager: $SDKM"
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          "$SDKM" --install "platforms;android-37.0" || "$SDKM" --install "platforms;android-37.1"
+          "$SDKM" --install "build-tools;37.0.0" || "$SDKM" --install "build-tools;36.1.0"
+          ls "$SDK/platforms" "$SDK/build-tools"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+
+      - name: Fetch the upstream data layer
+        run: |
+          set -eux
+          curl -sSL --retry 3 --retry-delay 5 \
+            "https://codeload.github.com/benbaobaoshigemi/OmniCam-Muse/tar.gz/${UPSTREAM_SHA}" -o /tmp/upstream.tar.gz
+          mkdir -p /tmp/up module/payload
+          tar xzf /tmp/upstream.tar.gz -C /tmp/up
+          UP=$(ls -d /tmp/up/*)
+          for DIR in meishe_lut x10_basictone setting_Retro gr_adjustment_lmt watermark_master_styles watermark_drawables; do
+            cp -a "$UP/module/payload/$DIR" module/payload/
+          done
+          # The algorithm stack must not be in this zip: no replaced libraries, no ISP/gamma, no
+          # master colour engine, no 25MP / 200MP config copies, no POP assets.
+          for DIR in system isp gamma master_color unlock25mp face200m ipu pld_watermark apk_resources; do
+            test ! -e "module/$DIR" && test ! -e "module/payload/$DIR"
+          done
+          du -sh module/payload/*
+          find module/payload -type f | wc -l
+
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: assembleRelease
+        run: |
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --console=plain --stacktrace
+
+      - name: Sign the APK
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)
+          cp app/build/outputs/apk/release/app-release-unsigned.apk unsigned.apk
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks signing/port.p12 --ks-type PKCS12 \
+            --ks-pass pass:omnicam --key-pass pass:omnicam \
+            --out OmniCam-Muse-NoStack.apk unsigned.apk
+          "$BUILD_TOOLS/apksigner" verify --print-certs OmniCam-Muse-NoStack.apk
+          echo "--- must be empty: native_init / libjiege_native ---"
+          unzip -l OmniCam-Muse-NoStack.apk | grep -E "native_init|libjiege_native" || echo "none (ok)"
+          echo "--- versionCode / versionName ---"
+          "$BUILD_TOOLS/aapt2" dump badging OmniCam-Muse-NoStack.apk | head -3
+
+      - name: Package the KernelSU module
+        run: |
+          cp OmniCam-Muse-NoStack.apk module/omnicam-muse-nostack.apk
+          python3 tools/zip_module.py module OmniCam-Muse-GT7Pro-NoStack-KSU.zip
+          unzip -l OmniCam-Muse-GT7Pro-NoStack-KSU.zip | head -20
+          echo "--- must be empty: any .so in the zip ---"
+          unzip -l OmniCam-Muse-GT7Pro-NoStack-KSU.zip | grep -E "\.so$" || echo "none (ok)"
+          du -h OmniCam-Muse-GT7Pro-NoStack-KSU.zip OmniCam-Muse-NoStack.apk
+
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "No-stack build (GT7 Pro): full port minus the X9 Ultra algorithm stack" \
+              --notes-file NOSTACK.md
+          fi
+          gh release upload "$RELEASE_TAG" OmniCam-Muse-GT7Pro-NoStack-KSU.zip OmniCam-Muse-NoStack.apk --clobber
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | "\(.name) \(.size)"'

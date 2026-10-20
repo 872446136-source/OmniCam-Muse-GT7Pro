@@ -22,7 +22,6 @@ import local.jiege.hook.masterlut.MasterContrast;
 import local.jiege.hook.masterlut.MasterLutSlots;
 import local.jiege.hook.modestate.ModeStateSplit;
 import local.jiege.hook.natural.NaturalMode;
-import local.jiege.hook.palette.GalleryColorPalette;
 import local.jiege.hook.pop.PopPort;
 import local.jiege.hook.seamless.SeamlessBlurGuard;
 import local.jiege.hook.shutter.CameraSoundForced;
@@ -39,31 +38,31 @@ import local.jiege.hook.video.VideoFilterHighSpec;
 import local.jiege.hook.x10.X10FilterPort;
 
 /**
- * LSPosed entry (assets/xposed_init). The native part is libjiege_native.so, declared in
- * assets/native_init.
+ * LSPosed entry (assets/xposed_init).
+ *
+ * This build ships no libjiege_native.so and no assets/native_init: the native half is the Find X9
+ * Ultra algorithm layer, which is what this build drops. Everything installed below works through
+ * the camera's own Java classes and the module's data files alone.
  *
  * Obfuscated camera and gallery code is reached through Symbols (fingerprints in
  * assets/symbols.json), resolved once per app build before any feature installs.
  *
- * Features:
- *   filters       filter catalogs, normal and master scope managed apart; group injection
- *   gr            Ricoh GR port (camera + gallery watermark)
- *   mastercolor   master mode colour: live look tables (HNCS, Lumix, film, ...) in place of the stock master LMT
- *   pop           POP (retro camera) port and POP high pixel
- *   x10           X10 filters and palette
- *   palette       palette editing in the gallery photo editor
- *   gallery       gallery photo details: the address opens a map app; hasselblad / LUMO / GR watermarks for every photo;
- *                 batch watermark add / undo from the multi-select menu
- *   highpixel     哈苏超清 (high pixel mode) filters and palette entries
- *   guard         camera / gallery without the module's /odm files: features off, GR / POP not reopened
- *   tilt          tilt-shift capture algorithm in the saved photo
- *   seamless      guard for the seamless-UI blur bitmap (front POP thumbnail crash)
- *   masterfilter  master filter completion (extra LUTs, neon glow, Portra halation)
+ * Installed here:
+ *   filters       filter catalog injection, normal and master scope managed apart (data layer:
+ *                 /odm/etc/camera/meishe_lut and /odm/etc/camera/basictone, bind-mounted)
+ *   x10           X10 filter port (same data layer, no library patch)
+ *   highpixel     filter list and palette entries inside 哈苏超清
+ *   gr            Ricoh GR port: mode, preview LUT, watermark (camera + gallery), shutter sound
+ *   gallery       photo-detail address opens a map app; watermark series unlock; batch watermark
  *   shutter       shutter sound in silent / vibrate mode, own shutter volume (camera + system)
  *   modestate     flash and live photo state per mode
- *   video         normal filters at 4K / 60fps in normal video
+ *   video         normal filters at 4K / 60fps
  *   launch        quick launch key opens a chosen mode
- *   natural       natural photo mode: AI detail enhancement and LCE off, extra softening (tuning json, tone transfer)
+ *   guard         camera / gallery without the module's files: features off, GR / POP not reopened
+ *
+ * Gated off by Profile.NATIVE_STACK (the algorithm stack, not in this build): mastercolour,
+ * natural, softlight, masterlut, masterfilter, pop, seamless, 25MP, 200MP face gate, tilt-shift,
+ * gallery palette, XPAN.
  */
 public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZygoteInit {
     private static final String CAMERA = "com.oplus.camera";
@@ -83,86 +82,64 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         } else if (GALLERY.equals(param.packageName)) {
             Symbols.install("gallery", classLoader, param.appInfo.sourceDir, param.appInfo.dataDir);
             AddressNavigation.installGallery(classLoader);
-            if (Profile.LITE) {
-                installLiteGallery(classLoader);
-                return;
-            }
+            // The GR styles read the module's staged files; without them they would fall back to
+            // stock artwork, so the guard decides first.
             if (!UnmountedGuard.filesMounted()) {
                 UnmountedGuard.installGallery();
                 return;
             }
-            GalleryColorPalette.installGallery(classLoader);
             GrPort.installGallery(classLoader);
             WatermarkSeriesUnlock.installGallery(classLoader);
             BatchWatermark.installGallery(classLoader);
         } else if (CAMERA.equals(param.packageName)) {
-            if (Profile.LITE) {
-                Symbols.install("camera", classLoader, param.appInfo.sourceDir, param.appInfo.dataDir);
-                installLiteCamera(classLoader);
-                return;
-            }
-            // Without the module's /odm files the native hooks would feed the stock libraries the
-            // ported POP settings and LUTs, so the guard decides first.
+            // Without the module's /odm data the ported LUTs are missing and the GR / POP UI would
+            // be built against stock files, so the guard decides first.
             if (!UnmountedGuard.filesMounted()) {
                 Symbols.install("camera", classLoader, param.appInfo.sourceDir, param.appInfo.dataDir);
                 UnmountedGuard.installCamera(classLoader);
                 return;
             }
-            // LSPosed calls native_init when this library is loaded; it must be registered before
-            // the camera loads libAlgoInterface / libBasicTone*, so it goes before the features.
-            System.loadLibrary("jiege_native");
             Symbols.install("camera", classLoader, param.appInfo.sourceDir, param.appInfo.dataDir);
-            PopPort.installCamera(classLoader, CAMERA.equals(param.processName));
             FilterGroupInjector.installCamera(classLoader);
             X10FilterPort.installCamera(classLoader);
             HighPixelEffects.installCamera(classLoader);
-            TiltShiftCapture.installCamera(classLoader);
-            SeamlessBlurGuard.installCamera(classLoader);
             KeyLaunchMode.installCamera(classLoader);
             Log.guard("CameraLog", "camera log mirror", () -> CameraLogMirror.install(classLoader));
-            MasterFilterCompletion.installCamera(classLoader);
-            GrPort.installCamera(classLoader);
-            MasterColor.installCamera(classLoader);
             ShutterSound.installCamera(classLoader);
             ModeStateSplit.installCamera(classLoader);
             VideoFilterHighSpec.installCamera(classLoader);
-            NaturalMode.installCamera(classLoader);
-            Unlock25mp.installCamera(classLoader);
-            HighPixel200mFace.installCamera(classLoader);
+            GrPort.installCamera(classLoader);
             ModelSpoof.installCamera(classLoader);
-            XpanWatermarkIsolation.installCamera(classLoader);
-            XpanLivePhoto.installCamera(classLoader);
-            XpanViewfinderClean.installCamera(classLoader);
             VideoWatermarkGuard.installCamera(classLoader);
-            SoftLight.installCamera(classLoader);
-            MasterLutSlots.installCamera(classLoader);
-            MasterContrast.installCamera(classLoader);
+            if (Profile.NATIVE_STACK) {
+                installNativeStack(classLoader, CAMERA.equals(param.processName));
+            }
         }
     }
 
     /**
-     * Lite camera: the features that live entirely in the camera app. Every one of them reads only
-     * the app's own classes and settings — no /odm file, no patched library — so they behave the
-     * same on a device whose camera config the module does not carry.
-     *
-     * Left out on purpose: everything that renders through the module's LUTs / basictone payload
-     * (POP, GR, X10, palette, master colour, master filter LUTs, soft light, master LUT slots and
-     * contrast), everything that patches a library (25MP, 200MP face gate), and everything that
-     * needs a mode the stock config does not have (XPAN, tilt-shift).
+     * The Find X9 Ultra algorithm stack. Needs libjiege_native.so (assets/native_init), the patched
+     * libAlgoInterface / libBasicTonePhoto(X9/X10) / libCombineLut under module/system/odm/lib64, and
+     * the upstream camera config, ISP tuned bins and gamma tables. None of that is in this build, so
+     * Profile.NATIVE_STACK is false and this never runs.
      */
-    private static void installLiteCamera(ClassLoader classLoader) {
-        KeyLaunchMode.installCamera(classLoader);
-        ShutterSound.installCamera(classLoader);
-        ModeStateSplit.installCamera(classLoader);
-        VideoFilterHighSpec.installCamera(classLoader);
-        ModelSpoof.installCamera(classLoader);
-        VideoWatermarkGuard.installCamera(classLoader);
-        Log.guard("CameraLog", "camera log mirror", () -> CameraLogMirror.install(classLoader));
-    }
-
-    /** Lite gallery: photo-detail address jump, watermark series unlock, batch watermark. */
-    private static void installLiteGallery(ClassLoader classLoader) {
-        WatermarkSeriesUnlock.installGallery(classLoader);
-        BatchWatermark.installGallery(classLoader);
+    private static void installNativeStack(ClassLoader classLoader, boolean mainProcess) {
+        // LSPosed calls native_init when this library is loaded; it must be registered before the
+        // camera loads libAlgoInterface / libBasicTone*, so it goes before the features.
+        System.loadLibrary("jiege_native");
+        PopPort.installCamera(classLoader, mainProcess);
+        TiltShiftCapture.installCamera(classLoader);
+        SeamlessBlurGuard.installCamera(classLoader);
+        MasterFilterCompletion.installCamera(classLoader);
+        MasterColor.installCamera(classLoader);
+        NaturalMode.installCamera(classLoader);
+        Unlock25mp.installCamera(classLoader);
+        HighPixel200mFace.installCamera(classLoader);
+        XpanWatermarkIsolation.installCamera(classLoader);
+        XpanLivePhoto.installCamera(classLoader);
+        XpanViewfinderClean.installCamera(classLoader);
+        SoftLight.installCamera(classLoader);
+        MasterLutSlots.installCamera(classLoader);
+        MasterContrast.installCamera(classLoader);
     }
 }

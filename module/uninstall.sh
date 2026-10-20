@@ -24,8 +24,8 @@ am force-stop com.oplus.camera > /dev/null 2>&1
 am force-stop com.coloros.gallery3d > /dev/null 2>&1
 sleep 1
 
-# 2. Kill switches from the test branch.
-rm -f /data/adb/omnicam_fullport_off /data/adb/omnicam_fullport_nolib
+# 2. Kill switches (this build and the test branch).
+rm -f /data/adb/omnicam_nostack_off /data/adb/omnicam_fullport_off /data/adb/omnicam_fullport_nolib
 say "kill switches removed"
 
 # 3. Watermark style folders the XPAN isolation backed up: put back what the camera lost, then drop
@@ -45,8 +45,6 @@ fi
 for DIR in \
     "$APP/files/jiege" \
     "$APP/files/ricoh_gr" \
-    "$APP/files/pop_port" \
-    "$APP/files/odm" \
     "$APP/files/mode_limit_watermark"
 do
     [ -e "$DIR" ] && rm -rf "$DIR" && say "removed $DIR"
@@ -54,8 +52,7 @@ done
 
 # 5. Everything the module staged in the gallery's data dir.
 for DIR in \
-    "$GALLERY/files/ricoh_gr_styles" \
-    "$GALLERY/files/jiege_ipu"
+    "$GALLERY/files/ricoh_gr_styles"
 do
     [ -e "$DIR" ] && rm -rf "$DIR" && say "removed $DIR"
 done
@@ -75,9 +72,6 @@ if [ -f "$PREF" ]; then
         com.oplus.camera.capture.hdr.cap.mode.value \
         com.oplus.camera.preview.hdr.cap.mode.value \
         com.oplus.camera.mode.data.db.version \
-        com.oplus.feature.retro.camera.support \
-        com.oplus.flashlevel.configurable.support \
-        com.oplus.feature.tilt.shift.photo.support \
         pref_jiege_wm_
     do
         sed -i "/name=\"$KEY/d" "$PREF"

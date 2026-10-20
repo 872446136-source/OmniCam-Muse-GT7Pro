@@ -2,9 +2,13 @@
 # points at it before the reboot that activates the module. A failed install (e.g. a different
 # signing key) is left as it is and logged to install.log; the installed app is never uninstalled.
 
-# 测试分支：payload 与 system/ 都保留（这是上游 X9 Ultra 的原件，暴力移植就是要它）。
+# 无算法栈版：payload 只带数据层（meishe_lut / x10_basictone / setting_Retro /
+# gr_adjustment_lmt / 水印样式与素材），不带 system/odm/lib64 的替换库。
 if [ ! -d "$MODPATH/payload" ]; then
     ui_print "- WARNING: payload missing, this zip was built without the upstream payload"
+fi
+if [ -d "$MODPATH/system/odm/lib64" ]; then
+    ui_print "- WARNING: system/odm/lib64 present, this build should not replace any library"
 fi
 
 PACKAGE=local.jiege.camera

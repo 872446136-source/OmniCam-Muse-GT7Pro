@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
-name=OmniCam Muse Full Port (GT7Pro test)
-version=Muse 4.0 full-port
-versionCode=400
+name=OmniCam Muse (GT7Pro no-stack)
+version=Muse 4.0 GT7Pro nostack
+versionCode=410
 author=local-port
-description=测试分支：把上游 Find X9 Ultra 的全部功能（payload、原生库、全部钩子）原样搬到真我 GT7 Pro。会挂 /odm、会替换 libAlgoInterface。相机可能起不来；关掉方法见 TEST-BRANCH.md。
+description=完整版去掉 Find X9 Ultra 独有算法栈：不带 libjiege_native、不换 libAlgoInterface / BasicTonePhoto(X9/X10) / CombineLut、不挂 ISP 调校与 gamma、不挂上游相机配置。保留滤镜（meishe_lut + X10 basictone）、GR 移植、GR 水印样式、水印解锁 / 批量水印、地址跳转、快门声、快启键、模式状态分离、4K60 滤镜、机型伪装。关掉方法：touch /data/adb/omnicam_nostack_off 后重启。

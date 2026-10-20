@@ -22,6 +22,7 @@
 | `适配评估报告.md` | 主报告：钩子层验证结果 + 完整版为什么做不出来的实测证据 |
 | `构建说明.md` | 出包流程、Lite 功能清单、完整版还缺什么 |
 | `采集设备信息.sh` | 设备侧数据采集（需 root，输出 `/sdcard/omnicam_gt7pro_dump.tar.gz`） |
+| `清理残留.sh` | 卸载模块后补一次清理（模块自带 `uninstall.sh`，这个是手动兜底） |
 | `patch/gt7pro-lite.diff` | **主补丁**：10 个文件，轻量版全部改动（含 symbols.json 的 4 处修正） |
 | `symbols.json` | 按 7.006.112 修正后的完整符号表（覆盖到 `app/src/main/assets/symbols.json`） |
 | `patch/symbols-gt7pro.diff` | 只含 symbols.json 那 4 处修正的 diff（想单独看改动时用） |

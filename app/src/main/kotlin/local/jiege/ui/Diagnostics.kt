@@ -14,7 +14,6 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import local.jiege.hook.common.Profile
 import local.jiege.settings.DiagnosticsContract
 import local.jiege.settings.MasterFilterContract
 import local.jiege.settings.ModuleSettings
@@ -60,13 +59,10 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
             val checks = ArrayList<Check>()
             val lsposed = MasterFilters.visibleToCamera(context)
             checks += Check("LSPosed", lsposed, if (lsposed) "模块已激活" else "模块未激活，在 LSPosed 中启用并勾选相机、相册、系统框架")
-            if (Profile.LITE) {
-                // Lite build: nothing is bind-mounted on purpose, so the mount row would be a false alarm.
-                checks += Check("轻量模式", true, "未挂载 /odm，只装应用层功能")
-            } else {
-                val mounted = moduleMounted()
-                checks += Check("KSU 模块", mounted, if (mounted) "相机库已挂载" else "相机库未挂载，确认 KSU 模块已启用并重启手机")
-            }
+            // No-stack build: only the data layer is bind-mounted (filter LUTs, X10 basictone, GR LMT).
+            // No library is replaced, so this checks the LUT tree rather than /odm/lib64.
+            val mounted = moduleMounted()
+            checks += Check("KSU 模块", mounted, if (mounted) "滤镜 / GR 数据已挂载" else "数据未挂载，确认 KSU 模块已启用并重启手机")
             val updated = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
             // A process still running hooks from the previous module APK only needs a restart.
             var stale = 0
@@ -103,7 +99,7 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
 
         /** The module's camera libraries are bind-mounted over /odm, so they sit on another device. */
         private fun moduleMounted(): Boolean = try {
-            Os.stat("/odm/lib64/libAlgoInterface.so").st_dev != Os.stat("/odm/lib64").st_dev
+            Os.stat("/odm/etc/camera/meishe_lut").st_dev != Os.stat("/odm/etc/camera").st_dev
         } catch (_: Exception) {
             false
         }

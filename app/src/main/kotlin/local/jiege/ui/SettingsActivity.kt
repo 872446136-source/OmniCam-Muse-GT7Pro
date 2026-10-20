@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import local.jiege.hook.common.Profile
 import local.jiege.settings.MasterLooks
 import local.jiege.settings.ModuleSettings
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -173,8 +174,11 @@ private fun SettingsScreen(store: SettingsStore) {
             NavigationBar {
                 NavigationBarItem(selected = tab == TAB_HOME, onClick = { select(TAB_HOME) }, icon = HomeIcon, label = "主页")
                 NavigationBarItem(selected = tab == TAB_SHOOT, onClick = { select(TAB_SHOOT) }, icon = CameraIcon, label = "拍摄")
-                NavigationBarItem(selected = tab == TAB_MASTER_COLOUR, onClick = { select(TAB_MASTER_COLOUR) }, icon = MasterColorIcon, label = "大师色彩")
-                NavigationBarItem(selected = tab == TAB_MASTER_FILTER, onClick = { select(TAB_MASTER_FILTER) }, icon = MiuixIcons.Basic.ArrowUpDown, label = "大师滤镜")
+                // 大师色彩 / 大师滤镜 read the X9 Ultra algorithm stack, which this build does not carry.
+                if (Profile.NATIVE_STACK) {
+                    NavigationBarItem(selected = tab == TAB_MASTER_COLOUR, onClick = { select(TAB_MASTER_COLOUR) }, icon = MasterColorIcon, label = "大师色彩")
+                    NavigationBarItem(selected = tab == TAB_MASTER_FILTER, onClick = { select(TAB_MASTER_FILTER) }, icon = MiuixIcons.Basic.ArrowUpDown, label = "大师滤镜")
+                }
                 NavigationBarItem(selected = tab == TAB_MISC, onClick = { select(TAB_MISC) }, icon = MiuixIcons.Basic.Sidebar, label = "杂项")
             }
         },
@@ -216,29 +220,33 @@ private fun LazyListScope.shootItems(store: SettingsStore, cardModifier: Modifie
                 title = "哈苏超清滤镜与调色盘",
                 summary = "使用拍照模式的滤镜、调色盘和柔光，入口在取景框角落",
             )
-            SettingSwitch(
-                store = store,
-                key = ModuleSettings.HIGH_PIXEL_200M_NO_FACE,
-                title = "哈苏超清200MP解除人脸识别门禁",
-                summary = "画面里没有大人脸也走真 200M 读出。仍需 1.0×、光线充足、非 HDR",
-            )
+            if (Profile.NATIVE_STACK) {
+                SettingSwitch(
+                    store = store,
+                    key = ModuleSettings.HIGH_PIXEL_200M_NO_FACE,
+                    title = "哈苏超清200MP解除人脸识别门禁",
+                    summary = "画面里没有大人脸也走真 200M 读出。仍需 1.0×、光线充足、非 HDR",
+                )
+            }
         }
     }
-    item(key = "pop") {
-        SmallTitle(text = "POP")
-        Card(modifier = cardModifier) {
-            SettingSwitch(
-                store = store,
-                key = ModuleSettings.POP_SDR_STYLE,
-                title = "POP 使用 SDR 风格",
-                summary = "成片为 SDR，偏亮，是 CCD 风味。关闭则为 Ultra HDR",
-            )
-            SettingSwitch(
-                store = store,
-                key = ModuleSettings.POP_HIGH_PIXEL,
-                title = "POP 高像素",
-                summary = "光线充足时输出中像素，画面中有人脸时保持原尺寸",
-            )
+    if (Profile.NATIVE_STACK) {
+        item(key = "pop") {
+            SmallTitle(text = "POP")
+            Card(modifier = cardModifier) {
+                SettingSwitch(
+                    store = store,
+                    key = ModuleSettings.POP_SDR_STYLE,
+                    title = "POP 使用 SDR 风格",
+                    summary = "成片为 SDR，偏亮，是 CCD 风味。关闭则为 Ultra HDR",
+                )
+                SettingSwitch(
+                    store = store,
+                    key = ModuleSettings.POP_HIGH_PIXEL,
+                    title = "POP 高像素",
+                    summary = "光线充足时输出中像素，画面中有人脸时保持原尺寸",
+                )
+            }
         }
     }
     item(key = "video") {
@@ -252,7 +260,8 @@ private fun LazyListScope.shootItems(store: SettingsStore, cardModifier: Modifie
             )
         }
     }
-    softLightItems(store, cardModifier, onOpenSoftLight, onOpenXpanClean)
+    // 物理柔光 / 和光物理胶片 / XPAN 都是算法栈功能，本版没有原生层，整块不显示。
+    if (Profile.NATIVE_STACK) softLightItems(store, cardModifier, onOpenSoftLight, onOpenXpanClean)
 }
 
 /** The 杂项 tab: shutter sound, per-mode memory, quick launch key and the watermark items. */

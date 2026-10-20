@@ -1,32 +1,18 @@
 #!/system/bin/sh
-# Bind the tested POP camera directories and GR ISP files.
+# Data-layer bind mounts only.
+#
+# This build keeps the Find X9 Ultra *data* (filter LUTs, X10 basictone, GR LMT) and drops its
+# algorithm stack: no patched libAlgoInterface / libBasicTonePhoto(X9/X10) / libCombineLut, no ISP
+# tuned bins, no gamma tables, no upstream camera config. What is mounted here is consumed by the
+# camera's own meishe / basictone engines, so nothing in this file replaces code the phone needs.
+#
+# Kill switch: adb shell su -c "touch /data/adb/omnicam_nostack_off" then reboot.
 MODDIR=${0%/*}
 LOG=$MODDIR/bind.log
 set -u
 
 log() {
     echo "$1" >> "$LOG"
-}
-
-bind_file() {
-    SOURCE="$1"
-    TARGET="$2"
-    chown root:root "$SOURCE"
-    chmod 0644 "$SOURCE"
-    chcon u:object_r:vendor_configs_file:s0 "$SOURCE" 2>/dev/null || true
-    if mount --bind "$SOURCE" "$TARGET" >> "$LOG" 2>&1; then
-        log "file bind ok $TARGET"
-    else
-        log "file bind FAIL $TARGET"
-    fi
-}
-
-label_tree() {
-    DIR=$1
-    chown -R root:root "$DIR"
-    find "$DIR" -type d -exec chmod 0755 {} \;
-    find "$DIR" -type f -exec chmod 0644 {} \;
-    find "$DIR" -exec chcon u:object_r:vendor_configs_file:s0 {} \; 2>>"$LOG" || true
 }
 
 bind_merged_dir() {
@@ -45,7 +31,10 @@ bind_merged_dir() {
     if [ -d "$EXTRA" ]; then
         cp -a "$EXTRA"/. "$DEST"/
     fi
-    label_tree "$DEST"
+    chown -R root:root "$DEST"
+    find "$DEST" -type d -exec chmod 0755 {} \;
+    find "$DEST" -type f -exec chmod 0644 {} \;
+    find "$DEST" -exec chcon u:object_r:vendor_configs_file:s0 {} \; 2>>"$LOG" || true
     log "live_count=$(ls "$LIVE" | wc -l) merged_count=$(ls "$DEST" | wc -l)"
     if mount --bind "$DEST" "$TARGET" >> "$LOG" 2>&1; then
         log "dir bind ok $TARGET"
@@ -57,55 +46,35 @@ bind_merged_dir() {
 : > "$LOG"
 log "begin"
 
-# 测试分支：上游 payload 原样往上挂，不做机型判断、不做能力探测。
-# 每个文件单独 bind，失败的记在 bind.log 里，不影响其它文件。
-# 一键关掉（不用卸载模块）：adb shell su -c "touch /data/adb/omnicam_fullport_off"，然后重启。
-if [ -f /data/adb/omnicam_fullport_off ]; then
-    log "kill switch /data/adb/omnicam_fullport_off present, nothing mounted"
+if [ -f /data/adb/omnicam_nostack_off ]; then
+    log "kill switch /data/adb/omnicam_nostack_off present, nothing mounted"
     exit 0
 fi
 
-for NAME in camera_unit_config camera_unit_feature_config.protobuf oplus_camera_config oplus_camera_algo_switch_config oplus_camera_aps_config oplus_camera_preview_decision_config.json; do
-    bind_file "$MODDIR/payload/$NAME" "/odm/etc/camera/config/$NAME"
-done
-# Forced shutter sound stream at the system volume curve (see tools/patch_audio_volumes.py).
-bind_file "$MODDIR/payload/audio_policy_volumes.xml" /odm/etc/audio/audio_policy_volumes.xml
-
+# Filters: the camera's meishe engine enumerates /odm/etc/camera/meishe_lut, so the ported LUTs are
+# merged on top of the live tree instead of replacing it.
 bind_merged_dir /odm/etc/camera/meishe_lut "$MODDIR/payload/meishe_lut" "$MODDIR/merged/meishe_lut" /odm/etc/camera/meishe_lut
 
+# Basictone: the live tree plus the X10 filter tables and the GR (setting_Retro) tables.
 BT_EXTRA=$MODDIR/merged/basictone_extra
 rm -rf "$BT_EXTRA"
 mkdir -p "$BT_EXTRA/setting_Retro"
 if [ -d "$MODDIR/payload/setting_Retro" ]; then
     cp -a "$MODDIR/payload/setting_Retro"/. "$BT_EXTRA/setting_Retro"/
 fi
-cp -a "$MODDIR/payload/x10_basictone"/. "$BT_EXTRA"/
+if [ -d "$MODDIR/payload/x10_basictone" ]; then
+    cp -a "$MODDIR/payload/x10_basictone"/. "$BT_EXTRA"/
+fi
 bind_merged_dir /odm/etc/camera/basictone "$BT_EXTRA" "$MODDIR/merged/basictone" /odm/etc/camera/basictone
 
-log "polaroid=$(ls -l /odm/etc/camera/meishe_lut/polaroid_sdr.mslut 2>&1)"
-log "host_film=$(ls -l /odm/etc/camera/meishe_lut/fuji-nc.bin 2>&1)"
+log "fuji_nc=$(ls -l /odm/etc/camera/meishe_lut/fuji-nc.bin 2>&1)"
 log "retro_ini=$(ls -l /odm/etc/camera/basictone/setting_Retro/SimTool_Master.ini 2>&1)"
 log "host_setting=$(ls -d /odm/etc/camera/basictone/setting 2>&1)"
 
-for LENS in main wide tele ultratele; do
-    NAME="com.qti.tuned.lighthouse${LENS}.bin"
-    SOURCE="$MODDIR/payload/isp/$NAME"
-    TARGET="/odm/lib64/camera/$NAME"
-    chown root:root "$SOURCE"
-    chmod 0644 "$SOURCE"
-    chcon u:object_r:vendor_file:s0 "$SOURCE" 2>>"$LOG" || true
-    if mount --bind "$SOURCE" "$TARGET" >>"$LOG" 2>&1; then
-        log "isp bind ok $TARGET"
-    else
-        log "isp bind FAIL $TARGET"
-    fi
-done
-for NAME in gamma_preview_sdr_conf.json gamma_quick_sdr_conf.json gamma_preview_hdr_conf.json; do
-    bind_file "$MODDIR/payload/gamma/$NAME" "/odm/etc/camera/$NAME"
-done
-# Pro video ISZ (2x main, 6x tele; O-Log2 too): stock sets the ISO gate of rows 25-40 to 0/0,
-# which DoIzoomStable() can never pass; -1 means "no ISO check", like the normal video rows.
-# Patched from the live file on every boot. Touch $MODDIR/disable_pro_video_isz to skip.
+# Pro video ISZ (2x main, 6x tele; O-Log2 too): the stock config sets the ISO gate of rows 25-40 to
+# 0/0, which DoIzoomStable() can never pass; -1 means "no ISO check", like the normal video rows.
+# Patched from the live file on every boot, skipped when the row count is not the expected 16.
+# A plain edit of this phone's own file, not part of the X9 Ultra algorithm stack.
 HWCFG=/odm/etc/camera/CameraHWConfiguration.config
 HWOUT=$MODDIR/merged/CameraHWConfiguration.config
 if [ -f "$MODDIR/disable_pro_video_isz" ]; then
@@ -125,9 +94,16 @@ elif [ -f "$HWCFG" ]; then
     ' "$HWCFG" > "$HWOUT" 2> "$MODDIR/merged/isz_count"
     COUNT=$(cat "$MODDIR/merged/isz_count" 2>/dev/null)
     if [ "$COUNT" = "16" ]; then
-        bind_file "$HWOUT" "$HWCFG"
+        chown root:root "$HWOUT"
+        chmod 0644 "$HWOUT"
+        chcon u:object_r:vendor_configs_file:s0 "$HWOUT" 2>/dev/null || true
+        if mount --bind "$HWOUT" "$HWCFG" >> "$LOG" 2>&1; then
+            log "file bind ok $HWCFG"
+        else
+            log "file bind FAIL $HWCFG"
+        fi
     else
-        log "pro video isz skipped, patched rows=$COUNT (expected 16)"
+        log "pro video isz skipped, patched rows=$COUNT"
     fi
 fi
 log "end"

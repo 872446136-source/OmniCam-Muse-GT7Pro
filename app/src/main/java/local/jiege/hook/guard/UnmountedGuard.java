@@ -17,8 +17,15 @@ import local.jiege.hook.common.Symbols;
  */
 public final class UnmountedGuard {
     private static final String TAG = "UnmountedGuard";
-    /** Bind-mounted from /data by the KSU module, so it sits on another device than its directory. */
-    private static final String FEATURE_CONFIG = "/odm/etc/camera/config/camera_unit_feature_config.protobuf";
+    /**
+     * Bind-mounted from /data by the KSU module, so it sits on another device than its directory.
+     *
+     * This build does not bind the upstream camera config (that config is the X9 Ultra algorithm
+     * decision tree), so the marker is the merged LUT tree instead: the filter, X10 and GR payloads
+     * all land there, and none of them is useful without it.
+     */
+    private static final String LUT_DIR = "/odm/etc/camera/meishe_lut";
+    private static final String LUT_PARENT = "/odm/etc/camera";
 
     private static volatile Object modeKey;
     private static volatile boolean logged;
@@ -27,7 +34,7 @@ public final class UnmountedGuard {
 
     public static boolean filesMounted() {
         try {
-            return Os.stat(FEATURE_CONFIG).st_dev != Os.stat("/odm/etc/camera/config").st_dev;
+            return Os.stat(LUT_DIR).st_dev != Os.stat(LUT_PARENT).st_dev;
         } catch (Exception error) {
             return false;
         }

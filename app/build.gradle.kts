@@ -6,18 +6,13 @@ plugins {
 android {
     namespace = "local.jiege.camera"
     compileSdk = 37
-    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "local.jiege.camera"
         minSdk = 28
         targetSdk = 35
-        versionCode = 400
-        versionName = "Muse 4.0 full-port"
-        ndk { abiFilters += "arm64-v8a" }
-        externalNativeBuild {
-            cmake { arguments += listOf("-DANDROID_STL=c++_static") }
-        }
+        versionCode = 410
+        versionName = "Muse 4.0 GT7Pro nostack"
     }
 
     val releaseKey = rootProject.file(providers.environmentVariable("OMNICAM_KEYSTORE").orElse("port.keystore").get())
@@ -43,24 +38,14 @@ android {
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
-
+    // No externalNativeBuild: this build has no libjiege_native.so (assets/native_init is gone too,
+    // so LSPosed never asks for it). The native half is the X9 Ultra algorithm layer.
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
     buildFeatures { compose = true }
-
-    packaging {
-        // LSPosed loads the native part straight from the APK (assets/native_init).
-        jniLibs.useLegacyPackaging = false
-    }
 }
 
 dependencies {

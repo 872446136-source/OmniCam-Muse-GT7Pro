@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse 4.6 GT7Pro
-versionCode=470
+version=Muse 4.7 GT7Pro
+versionCode=471
 author=local-port
-description=单版本，无 Lite。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置：配置改动走 profile（相机进程自己从 APK 写入 /data/user/0/com.oplus.camera/files/jiege/profile）+ 原生路径重定向，只影响相机进程。460 的相机黑屏是这一版修的重点：那一版在进程还没起来时就去读 CameraConfig 的开关，把相机的配置引擎提前叫醒，于是相机起来是黑屏。现在开关一律等 Application.onCreate 之后才回答，绝不主动调用原方法；再出问题可以 touch /data/adb/omnicam_gates_off 单独关掉这一部分（相机照常能用，只是 GR / POP / 哈苏水印没有）。相册那边 460 加的 feature 开关一并撤掉，回到 450 的行为。另外诊断页查相机状态加了 6 秒超时，相机进程崩溃时不会再一直卡在“正在检查”，导出日志也不会再卡死。关原生层：touch /data/adb/omnicam_native_off；全关：touch /data/adb/omnicam_off。均需重启。
+description=单版本，无 Lite。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置：配置改动走 profile（相机进程自己从 APK 写入 /data/user/0/com.oplus.camera/files/jiege/profile）+ 原生路径重定向，只影响相机进程。470 出了个很低级的错：拦截开关时多读了一个不存在的参数（getConfigBooleanValue 只有一个参数），每次调用都在钩子里抛数组越界，被框架吞掉，答案从来没设上去——所以 GR 模式虽然出现了，模式表里那一行却没写进去，一切到 GR 就卡满数据库查询超时，拍完照进相册再回相机也是同一个超时，看着就是黑屏卡死。471 改成先给答案再打日志，只读第一个参数。相机起来后还会把问过的开关名记进日志（最多 100 条），POP 模式到底卡在哪一环可以直接看出来。模式表按版本号重新播种一次。再出问题可以 touch /data/adb/omnicam_gates_off 单独关掉这一部分（相机照常能用，只是 GR / POP / 哈苏水印没有）。关原生层：touch /data/adb/omnicam_native_off；全关：touch /data/adb/omnicam_off。均需重启。

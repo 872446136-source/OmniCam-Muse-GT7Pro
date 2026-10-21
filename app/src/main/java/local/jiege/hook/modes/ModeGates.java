@@ -37,6 +37,13 @@ import local.jiege.hook.common.Log;
  * reason the class is loaded with {@code initialize = false} and the original method is never
  * called by this class — the first call is the camera's own.
  *
+ * <p>470 got the shape wrong: it read {@code param.args[1]} for a "default" that this method does
+ * not take — {@code getConfigBooleanValue(String)} has exactly one argument — so every call threw
+ * ArrayIndexOutOfBounds inside the hook, Xposed swallowed it, and the answer was never set. The
+ * rows were then never written, and the camera froze for the full database query timeout whenever
+ * a mode in the bar had no row. Hence: answer first, log second, and never index past
+ * {@code args[0]}.
+ *
  * <p>Escape hatch: {@code touch /data/adb/omnicam_gates_off} turns this part off without touching
  * anything else.
  */
@@ -57,6 +64,16 @@ public final class ModeGates {
 
     /** Keys already logged, so one report carries each answer once. */
     private static final Set<String> SEEN = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Every distinct key the camera asks about, logged once, capped. POP is still missing after the
+     * flags started answering, and the two possible reasons look identical from outside: the camera
+     * never asks about {@code retroCamera}, or it asks and drops the row somewhere else. This list
+     * tells them apart from a single report.
+     */
+    private static final Set<String> ASKED = ConcurrentHashMap.newKeySet();
+    private static final int ASKED_LIMIT = 100;
+
     private static boolean installed;
 
     private ModeGates() {}
@@ -106,11 +123,15 @@ public final class ModeGates {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
                     Object key = param.args[0];
                     if (!(key instanceof String)) return;
-                    if (!forced((String) key)) return;
-                    if (SEEN.add((String) key)) {
-                        Log.i(TAG, key + " answered true (camera passed default " + param.args[1] + ")");
+                    String name = (String) key;
+                    if (forced(name)) {
+                        // Answer first, log after: this runs on the camera's own thread while it
+                        // seeds its mode database, so nothing below may take the answer back.
+                        param.setResult(Boolean.TRUE);
+                        if (SEEN.add(name)) log(name + " answered true");
+                        return;
                     }
-                    param.setResult(Boolean.TRUE);
+                    if (ASKED.size() < ASKED_LIMIT && ASKED.add(name)) log("asked: " + name);
                 }
             });
             Log.i(TAG, "flag getter hooked, " + FORCED.length + " flags answered true");
@@ -129,6 +150,14 @@ public final class ModeGates {
             }
         }
         throw new NoSuchMethodException(config.getName() + "." + GETTER);
+    }
+
+    /** Logging must never be able to undo an answer that was already set. */
+    private static void log(String message) {
+        try {
+            Log.i(TAG, message);
+        } catch (Throwable ignored) {
+        }
     }
 
     private static boolean forced(String key) {

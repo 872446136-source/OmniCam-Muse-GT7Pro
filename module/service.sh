@@ -5,6 +5,11 @@
 # Each block is skipped when its payload is absent, so a trimmed build simply does less instead of
 # failing halfway.
 #
+# No restorecon on anything under /data/user/0/<pkg>: running it there replaces the app's SELinux
+# categories with the ones in file_contexts, which have none, and the app is then denied the files
+# this script just wrote. New files inherit the parent directory's context (categories included), so
+# chown and chmod are all that is needed. The one chcon below copies a directory's own context.
+#
 # Kill switch: touch /data/adb/omnicam_off, then reboot.
 
 MODDIR=${0%/*}
@@ -70,28 +75,13 @@ set_config com.oplus.feature.xpan.mode.support 1
 
 chown "$APP_UID:$APP_UID" "$PREF_FILE"
 chmod 0660 "$PREF_FILE"
-restorecon "$PREF_FILE" 2>/dev/null || true
 
-# Device config profile: profiles/<model>/config is this device's own config with the modes its
-# firmware ships but never lists (tilt-shift, XPAN). Nothing is mounted — the native path hooks serve
-# these copies to the camera process only, so /odm stays untouched.
-# Skip with: touch /data/adb/omnicam_no_profile
-PROFILE_SRC=$MODDIR/profiles/$(getprop ro.product.model)/config
-PROFILE_OUT=$APP/files/jiege/profile
-if [ -f /data/adb/omnicam_no_profile ]; then
-    rm -rf "$PROFILE_OUT"
-elif [ -d "$PROFILE_SRC" ]; then
-    mkdir -p "$PROFILE_OUT"
-    cp -f "$PROFILE_SRC"/* "$PROFILE_OUT"/ 2>/dev/null || true
-    : > "$PROFILE_OUT/enabled"
-    chown -R "$APP_UID:$APP_UID" "$PROFILE_OUT"
-    find "$PROFILE_OUT" -type d -exec chmod 0771 {} \;
-    find "$PROFILE_OUT" -type f -exec chmod 0644 {} \;
-    restorecon -R "$PROFILE_OUT" 2>/dev/null || true
-else
-    # A profile from another model must not survive a device change.
-    rm -rf "$PROFILE_OUT"
-fi
+# The config profile (this device's own camera_unit_config with the modes its firmware ships but
+# never lists) is NOT staged here. It is copied out of the module APK by the camera process itself
+# (ConfigProfile.ensure), because only the app can write its own files with the app's SELinux
+# categories: a root shell writing into /data/user/0/<pkg>/files produces files the app is denied,
+# and before the first unlock it cannot write there at all. Nothing is mounted either way — the
+# native path hooks serve the copy to the camera process only, so /odm stays untouched.
 
 # GR profile: the device's own LMT tree with the GR adjustment tables (SC16/SC32/CWCM) swapped in.
 # Every other entry is copied from /odm as-is, so the profile stays valid for this sensor set.
@@ -122,7 +112,6 @@ if [ -d "$PAYLOAD/gr_adjustment_lmt" ] && [ -d /odm/etc/camera/basictone/lmt ]; 
         esac
     done
     chown -R "$APP_UID:$APP_UID" "$APP/files/ricoh_gr"
-    restorecon -R "$APP/files/ricoh_gr" 2>/dev/null || true
 fi
 
 # Master colour (大师色彩): the engine data, scene profiles and look tables. Baked preview tables
@@ -159,7 +148,6 @@ for FONT in GilroySemiBold.otf FZLTZCHK.TTF; do
 done
 chown -R "$APP_UID:$APP_UID" "$APP/files/jiege" 2>/dev/null || true
 chmod 0771 "$APP/files/jiege" 2>/dev/null || true
-restorecon -R "$APP/files/jiege" 2>/dev/null || true
 
 # Camera-side GR watermark styles.
 CAM_ML=$APP/files/mode_limit_watermark
@@ -184,7 +172,6 @@ if [ -d "$PAYLOAD/watermark_master_styles" ]; then
     chown -R "$APP_UID:$APP_UID" "$CAM_ML"
     find "$CAM_ML" -type f -exec chmod 0644 {} \;
     find "$CAM_ML" -type d -exec chmod 0755 {} \;
-    restorecon -R "$CAM_ML" 2>/dev/null || true
 fi
 
 wait_for "$GALLERY" 120 || exit 0
@@ -203,7 +190,6 @@ if [ -f "$GALLERY_PREF" ]; then
     fi
     chown "$GALLERY_UID:$GALLERY_UID" "$GALLERY_PREF"
     chmod 0660 "$GALLERY_PREF"
-    restorecon "$GALLERY_PREF" 2>/dev/null || true
 fi
 
 # Gallery-side GR watermark styles.
@@ -216,7 +202,6 @@ if [ -d "$PAYLOAD/watermark_master_styles" ]; then
     fi
     chown -R "$GALLERY_UID:$GALLERY_UID" "$STYLE_OUT"
     chmod 0644 "$STYLE_OUT"/* 2>/dev/null || true
-    restorecon -R "$STYLE_OUT" 2>/dev/null || true
 fi
 
 # Camera unit SDK with the palette classes (CombineLut, PaletteColorTable) for the gallery's palette
@@ -230,6 +215,5 @@ if [ -f "$IPU_JAR" ]; then
     chmod 0711 "$IPU_OUT"
     chown 0:0 "$IPU_OUT/com.oplus.camera.unit.sdk.jar"
     chmod 0444 "$IPU_OUT/com.oplus.camera.unit.sdk.jar"
-    restorecon "$IPU_OUT" 2>/dev/null || true
     chcon "$(ls -dZ "$IPU_OUT" | awk '{print $1}')" "$IPU_OUT/com.oplus.camera.unit.sdk.jar" 2>/dev/null || true
 fi

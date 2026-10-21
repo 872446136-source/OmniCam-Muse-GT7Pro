@@ -2266,13 +2266,6 @@
     "Lcom/oplus/gallery/photoeditor/R$id;->watermark_camera_back_btn:I"
    ]
   },
-  "Section.segmentSetup": {
-   "kind": "method",
-   "in": "com.oplus.gallery.photoeditor.editingvvm.watermarkCamera.WatermarkCameraSection",
-   "strings": [
-    "null cannot be cast to non-null type com.coui.appcompat.segmentbutton.COUISegmentButtonLayout"
-   ]
-  },
   "Section.onCreate": {
    "kind": "method",
    "in": "com.oplus.gallery.photoeditor.editingvvm.watermarkCamera.WatermarkCameraSection",
@@ -2285,7 +2278,6 @@
    "ret": "boolean",
    "calledBy": [
     "@Section.backButtonSetup",
-    "@Section.segmentSetup",
     "@Section.onCreate"
    ]
   },

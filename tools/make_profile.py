@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """Build the RMX5010 (真我 GT7 Pro) config profile from that device's own stock files.
 
-Two features are present in the firmware but not offered, because the mode list never names them.
+Three features are present in the firmware but not offered, because the mode list never names them.
 Everything else they need is already there:
 
   tilt-shift   mode_operation_mode.tilt_shift_mode = 8001, aps_algo_tilt_shift = 1 in the algo switch,
                SINGLE_ALGO_TILT_SHIFT in the preview decision tree, and the crop parameters.
   xpan         capture_stream_number.xpan_mode, APS_CAPMODE_XPAN nodes in the decision tree, the
                APS XPAN tags, and the 8000x3636 picture size / crop regions in oplus_camera_config.
+  gr           the app ships GrMode / GRCapMode and the port runs them on top of professional mode,
+               so only the mode entry and an operation code are needed.
 
 So the profile only has to add the mode entries and flip one support flag. Nothing is invented: the
-xpan operation code and use case come from a sibling device's stock config that does ship XPAN
-(Find X8 Ultra, PKU110), and the shape of every entry is copied from the GT7 Pro file itself.
+xpan operation code, the GR operation code and the use cases come from a sibling device's stock
+config that does ship them (Find X8 Ultra, PKU110), and the shape of every entry is copied from the
+GT7 Pro file itself.
+
+POP (retro_camera_mode) is deliberately NOT added: it needs a retro branch in the preview decision
+tree, GT7 Pro has none, and the decision config is encrypted, so a mode entry alone would open an
+empty mode.
 
     python make_profile.py <stock-odm>/etc/camera/config <libOplusSecurity.so> <out-dir>
 
@@ -27,6 +34,10 @@ import oplus_config  # noqa: E402
 # Where each lens should offer the new modes, copied from the PKU110 layout.
 TILT_SHIFT_LENSES = ("rear_wide", "rear_main", "rear_tele", "front_main", "rear_sat")
 XPAN_LENSES = ("rear_main",)
+# GR runs on top of professional mode (GrModeHooks delegates to ProMode), so it carries the same
+# operation code: PKU110 stock has gr_mode = 8009, exactly professional_mode's code.
+GR_LENSES = ("rear_wide", "rear_main", "rear_tele", "rear_sat")
+GR_OPERATION_MODE = "8009"
 # PKU110 stock: xpan_mode -> 80AC, and the use case is the generic var_camera trio.
 XPAN_OPERATION_MODE = "80AC"
 XPAN_USECASE = [
@@ -55,10 +66,16 @@ def patch_unit_config(text):
     for lens in XPAN_LENSES:
         if lens in modes and insert_after(modes[lens], "xpan_mode", "panorama_mode"):
             added.append(f"{lens}.xpan_mode")
+    for lens in GR_LENSES:
+        if lens in modes and insert_after(modes[lens], "gr_mode", "professional_mode"):
+            added.append(f"{lens}.gr_mode")
 
     if "xpan_mode" not in unit["mode_operation_mode"]:
         unit["mode_operation_mode"]["xpan_mode"] = XPAN_OPERATION_MODE
         added.append("mode_operation_mode.xpan_mode")
+    if "gr_mode" not in unit["mode_operation_mode"]:
+        unit["mode_operation_mode"]["gr_mode"] = GR_OPERATION_MODE
+        added.append("mode_operation_mode.gr_mode")
     if "xpan_case" not in unit["usecase_info"]:
         unit["usecase_info"]["xpan_case"] = XPAN_USECASE
         added.append("usecase_info.xpan_case")

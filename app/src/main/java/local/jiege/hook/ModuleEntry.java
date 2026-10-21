@@ -5,6 +5,7 @@ import de.robv.android.xposed.IXposedHookZygoteInit;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 import local.jiege.hook.common.CameraLogMirror;
 import local.jiege.hook.common.Capabilities;
+import local.jiege.hook.common.ConfigProfile;
 import local.jiege.hook.common.Diagnostics;
 import local.jiege.hook.common.Install;
 import local.jiege.hook.common.Log;
@@ -91,6 +92,10 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
     private void installCamera(ClassLoader classLoader, XC_LoadPackage.LoadPackageParam param) {
         Symbols.install("camera", classLoader, param.appInfo.sourceDir, param.appInfo.dataDir);
 
+        // Before the capabilities probe: the profile is what makes the modes the firmware ships but
+        // never lists (tilt-shift, XPAN, GR) visible to hasMode() on this very start.
+        ConfigProfile.ensure(classLoader);
+
         // The native half carries the in-process path redirection (master colour live tables, GR LMT,
         // imported master filters) and the library-side hooks (LMT params, soft light, LUT slots).
         // Without it the pure Java features still install; the ones that need it are skipped below.
@@ -123,6 +128,11 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         // --- tuning host: serve tables into the stock LMT directory through the path hooks ---
         Install.run("GR 移植", data && lmt && nativeLibrary, !data ? noData : !lmt ? noLmt : noNative,
             () -> GrPort.installCamera(classLoader));
+        if (!Capabilities.hasMode("gr_mode")) {
+            // The hooks are harmless without the mode, but the mode item only exists when the
+            // profile names it, so say so instead of leaving "GR is on but invisible" unexplained.
+            Log.i("Install", "GR 模式入口不在 mode_type_list 里（profile 未生效），相机里看不到 GR");
+        }
         Install.run("大师色彩", lmt && nativeLibrary, !lmt ? noLmt : noNative,
             () -> MasterColor.installCamera(classLoader));
         Install.run("大师 LUT 槽", lmt && nativeLibrary, !lmt ? noLmt : noNative,
@@ -140,11 +150,13 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
             () -> HighPixel200mFace.installCamera(classLoader));
 
         // --- mode dependent: the mode has to exist in this device's mode_type_list ---
-        // On GT7 Pro the profile adds tilt_shift_mode / xpan_mode, so these turn on through the
-        // config remap rather than through a firmware that lists them.
-        boolean retroMode = Capabilities.retro() && Capabilities.hasMode("retro_mode");
+        // On GT7 Pro the profile adds tilt_shift_mode / xpan_mode / gr_mode, so these turn on
+        // through the config remap rather than through a firmware that lists them.
+        boolean retroMode = Capabilities.retro() && Capabilities.hasMode("retro_camera_mode");
         Install.run("POP 复古相机", retroMode && nativeLibrary,
-            !Capabilities.retro() ? "本机没有 setting_Retro basictone" : "本机决策树没有 retro 分支",
+            !Capabilities.retro()
+                ? "本机没有 setting_Retro basictone"
+                : "本机决策树没有 retro 分支，且决策配置加密补不出节点",
             () -> PopPort.installCamera(classLoader, CAMERA.equals(param.processName)));
         Install.run("无缝模糊保护", retroMode, "POP 未启用，无需保护",
             () -> SeamlessBlurGuard.installCamera(classLoader));

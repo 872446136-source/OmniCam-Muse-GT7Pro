@@ -22,3 +22,11 @@ else
 fi
 printf 'installed %s -> %s: %s\n' "${HAVE:-none}" "$WANT" "$RESULT" > "$MODPATH/install.log"
 ui_print "- Settings app: $RESULT"
+
+# Builds up to 430 staged the config profile from this script with root and then ran restorecon on
+# it, which drops the app's SELinux categories: the camera could not read the file and every mode
+# the profile adds stayed hidden. The profile is now written by the camera process itself, so the
+# old copy has to go once — it has the right length, and ConfigProfile would otherwise keep it.
+for DIR in /data/user/0/com.oplus.camera/files/jiege/profile /data/data/com.oplus.camera/files/jiege/profile; do
+    [ -d "$DIR" ] && rm -rf "$DIR"
+done

@@ -17,6 +17,7 @@
       "super_text_mode",
       "fastvideo_mode",
       "professional_mode",
+      "gr_mode",
       "master_video_mode",
       "street_mode",
       "slowvideo_mode",
@@ -30,6 +31,7 @@
       "super_text_mode",
       "fastvideo_mode",
       "professional_mode",
+      "gr_mode",
       "id_photo_mode",
       "slowvideo_mode",
       "master_video_mode",
@@ -46,6 +48,7 @@
     "rear_tele": [
       "video_mode",
       "professional_mode",
+      "gr_mode",
       "master_video_mode",
       "slowvideo_mode",
       "photo_mode",
@@ -74,7 +77,8 @@
       "fastvideo_mode",
       "street_mode",
       "under_water_mode",
-      "tilt_shift_mode"
+      "tilt_shift_mode",
+      "gr_mode"
     ],
     "rear_portrait": [
       "portrait_mode"
@@ -177,7 +181,8 @@
     "long_exposure_mode": "80AA",
     "tilt_shift_mode": "8001",
     "tilt_Shift_fastvideo_mode": "800C",
-    "xpan_mode": "80AC"
+    "xpan_mode": "80AC",
+    "gr_mode": "8009"
   },
   "usecase_info": {
     "sat_photo_case": [

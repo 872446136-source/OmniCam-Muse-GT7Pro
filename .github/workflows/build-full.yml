@@ -69,6 +69,11 @@ jobs:
                      master_color watermark_master_styles watermark_drawables ipu; do
             cp -a "$UP/module/payload/$DIR" "module/payload/$DIR"
           done
+          # The X10 filters 清透 / 琥珀 ship as version 4 / 33^3 LUTs, a shape the GT7 Pro firmware
+          # never loads (every LUT it ships is version 1 / 32^3 or version 3 / 17^3), which renders
+          # both filters black. Rewrite them as version 1 / 32^3 with a trilinear resample.
+          python3 tools/mslut.py fix module/payload/meishe_lut
+          python3 tools/mslut.py info module/payload/meishe_lut/qing_tou.bin module/payload/meishe_lut/hu_po.bin
           du -sh module/payload/*
 
       - name: Gradle
@@ -93,6 +98,9 @@ jobs:
           "$BUILD_TOOLS/apksigner" verify --print-certs OmniCam-Muse-GT7Pro.apk
           "$BUILD_TOOLS/aapt2" dump badging OmniCam-Muse-GT7Pro.apk | head -1
           unzip -l OmniCam-Muse-GT7Pro.apk | grep -E "native_init|libjiege_native"
+          # The config profile is staged by the camera process from this asset; without it every mode
+          # the profile adds stays hidden.
+          unzip -l OmniCam-Muse-GT7Pro.apk | grep "assets/profile/.*/camera_unit_config"
 
       - name: Package the KernelSU module
         run: |

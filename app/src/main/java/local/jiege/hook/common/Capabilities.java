@@ -111,8 +111,18 @@ public final class Capabilities {
     /** One line for the settings app's diagnostics page. */
     public static String describe() {
         return "data=" + dataLayer() + " lmt=" + lmt() + " retro=" + retro()
-            + " profile=" + profileConfig() + " plainDecision=" + plainDecision()
+            + " profile=" + profileConfig() + " profileModel=" + android.os.Build.MODEL
+            + " profileBytes=" + profileSize() + " plainDecision=" + plainDecision()
             + " tuningJson=" + tuningJson() + " native=" + nativeLibrary();
+    }
+
+    /** Size of the staged profile, so a report shows whether it is the file that was built. */
+    public static long profileSize() {
+        try {
+            return new File(PROFILE_DIR + "/camera_unit_config").length();
+        } catch (Throwable error) {
+            return -1;
+        }
     }
 
     private static synchronized String unitConfigText() {

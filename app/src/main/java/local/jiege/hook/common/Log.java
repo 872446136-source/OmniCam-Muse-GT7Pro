@@ -12,6 +12,12 @@ public final class Log {
         Diagnostics.record("I", line);
     }
 
+    public static void e(String tag, String message) {
+        String line = tag + ": " + message;
+        XposedBridge.log(line);
+        Diagnostics.record("E", line);
+    }
+
     public static void e(String tag, String message, Throwable error) {
         String line = tag + ": " + message + " " + error;
         XposedBridge.log(line);

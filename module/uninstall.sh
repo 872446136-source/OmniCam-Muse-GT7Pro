@@ -78,6 +78,7 @@ if [ -f "$PREF" ]; then
         com.oplus.feature.retro.camera.support \
         com.oplus.flashlevel.configurable.support \
         com.oplus.feature.tilt.shift.photo.support \
+        com.oplus.feature.xpan.mode.support \
         pref_jiege_wm_
     do
         sed -i "/name=\"$KEY/d" "$PREF"

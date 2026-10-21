@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse 4.1 GT7Pro
-versionCode=420
+version=Muse 4.2 GT7Pro
+versionCode=430
 author=local-port
-description=单版本，不再有 Lite / 完整版之分：所有功能都装上，每个功能按本机能力自动启用，设置里的诊断页会逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置，只叠加 LUT / basictone / 水印数据，所以相机不会因为换库起不来。关掉原生层：touch /data/adb/omnicam_native_off；整体关掉：touch /data/adb/omnicam_off，然后重启。
+description=单版本，无 Lite。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置：配置改动走 profile（/data/user/0/com.oplus.camera/files/jiege/profile）+ 原生路径重定向，只影响相机进程。本版新增：移轴拍摄、XPAN（固件里本来就有，只是模式列表没列）。关掉 profile：touch /data/adb/omnicam_no_profile；关原生层：touch /data/adb/omnicam_native_off；全关：touch /data/adb/omnicam_off。均需重启。

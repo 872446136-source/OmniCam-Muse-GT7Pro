@@ -133,28 +133,30 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
 
         // --- config shape: only where the decision tree is plain text (X9 Ultra and peers) ---
         boolean plain = Capabilities.plainDecision();
-        String encrypted = "本机决策配置是加密的，无法改写";
-        Install.run("25MP 解锁", plain && nativeLibrary, !plain ? encrypted : noNative,
+        String noDecisionNodes = "本机决策树没有 25M / 200M 节点（机型无此算法）";
+        Install.run("25MP 解锁", plain && nativeLibrary, !plain ? noDecisionNodes : noNative,
             () -> Unlock25mp.installCamera(classLoader));
-        Install.run("200MP 人脸门禁", plain && nativeLibrary, !plain ? encrypted : noNative,
+        Install.run("200MP 人脸门禁", plain && nativeLibrary, !plain ? noDecisionNodes : noNative,
             () -> HighPixel200mFace.installCamera(classLoader));
 
         // --- mode dependent: the mode has to exist in this device's mode_type_list ---
+        // On GT7 Pro the profile adds tilt_shift_mode / xpan_mode, so these turn on through the
+        // config remap rather than through a firmware that lists them.
         boolean retroMode = Capabilities.retro() && Capabilities.hasMode("retro_mode");
         Install.run("POP 复古相机", retroMode && nativeLibrary,
-            !Capabilities.retro() ? "本机没有 setting_Retro basictone" : "本机 mode_type_list 没有 retro_mode",
+            !Capabilities.retro() ? "本机没有 setting_Retro basictone" : "本机决策树没有 retro 分支",
             () -> PopPort.installCamera(classLoader, CAMERA.equals(param.processName)));
         Install.run("无缝模糊保护", retroMode, "POP 未启用，无需保护",
             () -> SeamlessBlurGuard.installCamera(classLoader));
         Install.run("移轴拍摄", Capabilities.hasMode("tilt_shift_mode"),
-            "本机 mode_type_list 没有 tilt_shift_mode",
+            "本机 mode_type_list 没有 tilt_shift_mode（配置 profile 未生效）",
             () -> TiltShiftCapture.installCamera(classLoader));
         boolean xpan = Capabilities.hasMode("xpan_mode");
-        Install.run("XPAN 实况", xpan, "本机 mode_type_list 没有 xpan_mode",
+        Install.run("XPAN 实况", xpan, "本机 mode_type_list 没有 xpan_mode（配置 profile 未生效）",
             () -> XpanLivePhoto.installCamera(classLoader));
-        Install.run("XPAN 取景净化", xpan, "本机 mode_type_list 没有 xpan_mode",
+        Install.run("XPAN 取景净化", xpan, "本机 mode_type_list 没有 xpan_mode（配置 profile 未生效）",
             () -> XpanViewfinderClean.installCamera(classLoader));
-        Install.run("XPAN 水印隔离", xpan, "本机 mode_type_list 没有 xpan_mode",
+        Install.run("XPAN 水印隔离", xpan, "本机 mode_type_list 没有 xpan_mode（配置 profile 未生效）",
             () -> XpanWatermarkIsolation.installCamera(classLoader));
 
         // --- MediaTek tuning json: natural mode has nothing to write on a Qualcomm device ---

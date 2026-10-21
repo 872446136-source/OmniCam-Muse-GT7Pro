@@ -20,6 +20,9 @@ void onLibraryLoadedForNatural(const char *name);
 // Returns the path to open instead of the tuning json, or null for every other path.
 const char *naturalRemapPath(const char *path, char *buf, size_t n);
 
+// Device config profile (profile_config.cpp): serves the staged per-model configs over the ODM ones.
+const char *profileRemapPath(const char *path, char *buf, size_t n);
+
 // Normal-mode 25MP unlock (unlock25mp.cpp): serves the relaxed config copies while the switch is on.
 const char *unlock25mpRemapPath(const char *path, char *buf, size_t n);
 

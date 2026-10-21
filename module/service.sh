@@ -55,18 +55,43 @@ set_config() {
     fi
 }
 
-# GR mode is enabled through the app's own feature switch. The HDR capture list names only modes this
-# build can actually reach: xpan and retroCamera are dropped because the module no longer enables them.
+# GR mode is enabled through the app's own feature switch. The HDR capture list names only modes that
+# have a decision tree on this device: retroCamera is left out (no retro branch), xpan is not listed
+# because its HDR support is unverified even though the mode itself is now reachable.
 set_config com.oplus.gr.mode.support 1
 set_config com.oplus.camera.mode.data.db.version 102
 set_config com.oplus.available.gr.mode.zoomvalues "$GR_AVAILABLE"
 set_config com.oplus.gr.mode.marked.zoomvalues "$GR_MARKED"
 set_config com.oplus.camera.capture.hdr.cap.mode.value 'common,portrait,professional,night,highPixel,underWater,telephoto,gr'
 set_config com.oplus.camera.preview.hdr.cap.mode.value 'common,professional,night,highPixel,underWater,telephoto,gr'
+# XPAN: the firmware ships the mode, the decision-tree nodes and the crop parameters, but the support
+# flag in oplus_camera_config is 0. Overriding the VendorTag here leaves the config file untouched.
+set_config com.oplus.feature.xpan.mode.support 1
 
 chown "$APP_UID:$APP_UID" "$PREF_FILE"
 chmod 0660 "$PREF_FILE"
 restorecon "$PREF_FILE" 2>/dev/null || true
+
+# Device config profile: profiles/<model>/config is this device's own config with the modes its
+# firmware ships but never lists (tilt-shift, XPAN). Nothing is mounted — the native path hooks serve
+# these copies to the camera process only, so /odm stays untouched.
+# Skip with: touch /data/adb/omnicam_no_profile
+PROFILE_SRC=$MODDIR/profiles/$(getprop ro.product.model)/config
+PROFILE_OUT=$APP/files/jiege/profile
+if [ -f /data/adb/omnicam_no_profile ]; then
+    rm -rf "$PROFILE_OUT"
+elif [ -d "$PROFILE_SRC" ]; then
+    mkdir -p "$PROFILE_OUT"
+    cp -f "$PROFILE_SRC"/* "$PROFILE_OUT"/ 2>/dev/null || true
+    : > "$PROFILE_OUT/enabled"
+    chown -R "$APP_UID:$APP_UID" "$PROFILE_OUT"
+    find "$PROFILE_OUT" -type d -exec chmod 0771 {} \;
+    find "$PROFILE_OUT" -type f -exec chmod 0644 {} \;
+    restorecon -R "$PROFILE_OUT" 2>/dev/null || true
+else
+    # A profile from another model must not survive a device change.
+    rm -rf "$PROFILE_OUT"
+fi
 
 # GR profile: the device's own LMT tree with the GR adjustment tables (SC16/SC32/CWCM) swapped in.
 # Every other entry is copied from /odm as-is, so the profile stays valid for this sensor set.

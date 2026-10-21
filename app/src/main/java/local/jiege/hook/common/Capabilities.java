@@ -36,6 +36,8 @@ public final class Capabilities {
     public static final String DECISION = ODM_CONFIG + "/oplus_camera_preview_decision_config.json";
     public static final String TUNING_JSON = ODM_CAMERA + "/conf_tuning_params.json";
     public static final String UNIT_CONFIG = ODM_CONFIG + "/camera_unit_config";
+    /** Config profile staged by service.sh; the native path hooks serve it over the ODM configs. */
+    public static final String PROFILE_DIR = "/data/user/0/com.oplus.camera/files/jiege/profile";
 
     private static Boolean dataLayer;
     private static Boolean plainDecision;
@@ -75,6 +77,14 @@ public final class Capabilities {
         return readable(TUNING_JSON);
     }
 
+    /**
+     * Whether a per-model config profile is staged. The native path hooks serve it to the camera
+     * process only, which is how a mode the firmware ships but never lists becomes reachable.
+     */
+    public static boolean profileConfig() {
+        return readable(PROFILE_DIR + "/enabled");
+    }
+
     /** Whether {@code libjiege_native.so} loaded and its hooks installed. */
     public static boolean nativeLibrary() {
         return nativeLibrary;
@@ -101,21 +111,26 @@ public final class Capabilities {
     /** One line for the settings app's diagnostics page. */
     public static String describe() {
         return "data=" + dataLayer() + " lmt=" + lmt() + " retro=" + retro()
-            + " plainDecision=" + plainDecision() + " tuningJson=" + tuningJson()
-            + " native=" + nativeLibrary();
+            + " profile=" + profileConfig() + " plainDecision=" + plainDecision()
+            + " tuningJson=" + tuningJson() + " native=" + nativeLibrary();
     }
 
     private static synchronized String unitConfigText() {
         if (unitConfig == null) {
             unitConfig = Boolean.FALSE;
-            try {
-                byte[] raw = readAll(UNIT_CONFIG, 96 * 1024);
-                if (raw != null && raw.length > 0 && raw[0] == '{') {
-                    UNIT_TEXT = new String(raw, "UTF-8");
-                    unitConfig = Boolean.TRUE;
+            // The staged profile first: that is the copy the camera process is served through the
+            // native path hooks, so it is what the modes will actually be read from.
+            for (String path : new String[] {PROFILE_DIR + "/camera_unit_config", UNIT_CONFIG}) {
+                try {
+                    byte[] raw = readAll(path, 96 * 1024);
+                    if (raw != null && raw.length > 0 && raw[0] == '{') {
+                        UNIT_TEXT = new String(raw, "UTF-8");
+                        unitConfig = Boolean.TRUE;
+                        break;
+                    }
+                } catch (Throwable ignored) {
+                    // try the next candidate
                 }
-            } catch (Throwable ignored) {
-                // left false: features that need a mode list stay off
             }
         }
         return unitConfig ? UNIT_TEXT : null;

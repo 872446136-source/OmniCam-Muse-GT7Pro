@@ -58,6 +58,9 @@ static const char *remap(const char *path, char *buf, size_t n) {
     if (const char *mapped = face200mRemapPath(path, buf, n)) {
         return mapped;
     }
+    if (const char *mapped = profileRemapPath(path, buf, n)) {
+        return mapped;
+    }
     if (const char *mapped = unlock25mpRemapPath(path, buf, n)) {
         return mapped;
     }

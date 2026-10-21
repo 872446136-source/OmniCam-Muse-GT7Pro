@@ -24,6 +24,8 @@ import local.jiege.hook.masterfilter.MasterFilterCompletion;
 import local.jiege.hook.masterlut.MasterContrast;
 import local.jiege.hook.masterlut.MasterLutSlots;
 import local.jiege.hook.modes.ModeGates;
+import local.jiege.hook.modes.ModePlacement;
+import local.jiege.hook.modes.ModeProbe;
 import local.jiege.hook.modestate.ModeStateSplit;
 import local.jiege.hook.natural.NaturalMode;
 import local.jiege.hook.palette.GalleryColorPalette;
@@ -105,6 +107,12 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         // the camera comes up black), so the database is dropped now and re-seeded once the app is up.
         if (CAMERA.equals(param.processName)) {
             ModeGates.installCamera(classLoader);
+            // 大师模式 sits in the "more" panel because two config keys disagree about where it
+            // goes; this serves the panel list without it so the headline move stands.
+            ModePlacement.installCamera(classLoader);
+            // Read-only: logs the name-to-id lookup, the row lookup behind "the device is not
+            // support the mode", and the table itself. GR and POP still freeze on switch.
+            ModeProbe.installCamera(classLoader);
             ModeDataReset.ensure(param.appInfo != null && param.appInfo.dataDir != null
                 ? param.appInfo.dataDir : "/data/user/0/" + CAMERA);
         }

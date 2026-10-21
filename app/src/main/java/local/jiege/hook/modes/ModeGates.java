@@ -58,6 +58,10 @@ public final class ModeGates {
         "com.oplus.gr.mode.support",
         "com.oplus.feature.retro.camera.support",
         "com.oplus.feature.xpan.mode.support",
+        // 大师模式 (ProfessionalMode) has no row of its own without this: the key is not in this
+        // device's config at all, so the seeding code skips the mode and only a move config puts
+        // it in the table. See ModePlacement for where it ends up.
+        "com.oplus.feature.professional.mode.support",
         "com.oplus.camera.support.custom.hasselblad.watermark",
         "com.oplus.camera.support.custom.hasselblad.watermark.sellmode.default.open",
     };
@@ -88,9 +92,25 @@ public final class ModeGates {
             Log.i(TAG, "gates off (" + OFF + "), flags left as shipped");
             return;
         }
+        afterApplication(classLoader, new Runnable() {
+            @Override public void run() {
+                install(classLoader);
+            }
+        });
+    }
+
+    /**
+     * Runs {@code task} once the camera's Application exists.
+     *
+     * <p>This is the fix 470 shipped and 471 kept: resolving a camera class from
+     * {@code handleLoadPackage} — {@code handleBindApplication} is still running and the
+     * Application has not been created — starts the camera's config engine early and the camera
+     * then comes up to a black screen. Everything that touches those classes goes through here.
+     */
+    static void afterApplication(final ClassLoader classLoader, final Runnable task) {
         XC_MethodHook arm = new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
-                install(classLoader);
+                task.run();
             }
         };
         try {

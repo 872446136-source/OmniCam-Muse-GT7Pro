@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse 4.7 GT7Pro
-versionCode=471
+version=Muse 4.8 GT7Pro
+versionCode=472
 author=local-port
-description=单版本，无 Lite。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置：配置改动走 profile（相机进程自己从 APK 写入 /data/user/0/com.oplus.camera/files/jiege/profile）+ 原生路径重定向，只影响相机进程。470 出了个很低级的错：拦截开关时多读了一个不存在的参数（getConfigBooleanValue 只有一个参数），每次调用都在钩子里抛数组越界，被框架吞掉，答案从来没设上去——所以 GR 模式虽然出现了，模式表里那一行却没写进去，一切到 GR 就卡满数据库查询超时，拍完照进相册再回相机也是同一个超时，看着就是黑屏卡死。471 改成先给答案再打日志，只读第一个参数。相机起来后还会把问过的开关名记进日志（最多 100 条），POP 模式到底卡在哪一环可以直接看出来。模式表按版本号重新播种一次。再出问题可以 touch /data/adb/omnicam_gates_off 单独关掉这一部分（相机照常能用，只是 GR / POP / 哈苏水印没有）。关原生层：touch /data/adb/omnicam_native_off；全关：touch /data/adb/omnicam_off。均需重启。
+description=单版本，无 Lite。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置：配置改动走 profile（相机进程自己从 APK 写入 /data/user/0/com.oplus.camera/files/jiege/profile）+ 原生路径重定向，只影响相机进程。471 的开关修复确认生效：retroCamera 和 gr 都真正回答成 true，POP 模式入口出来了，相机哈苏水印也回来了。但 GR / POP 切过去仍然卡死，这一版加了只读探针（ModeProbe），把切换时的三步全记进日志——模式名转 id、按 id 查 mode_info、以及播种完的整张表——下次一份日志就能分清是行没写进去、还是 id 对不上、还是行在但相机不肯切。大师模式（professional）本机配置里连 support 键都没有，而且两条 move 配置互相打架，最后被挪回“更多”面板，所以一直看不到入口；472 回答 professional.mode.support 并让面板那条 move 不再包含它，大师模式回到模式栏。新增逃生口：touch /data/adb/omnicam_probe_off 关探针，touch /data/adb/omnicam_placement_off 关大师模式搬移。原有：touch /data/adb/omnicam_gates_off 关开关层；touch /data/adb/omnicam_native_off 关原生层；touch /data/adb/omnicam_off 全关。均需重启。

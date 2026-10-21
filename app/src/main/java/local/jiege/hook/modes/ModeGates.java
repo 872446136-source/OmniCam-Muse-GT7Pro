@@ -111,8 +111,10 @@ public final class ModeGates {
      * {@code handleLoadPackage} — {@code handleBindApplication} is still running and the
      * Application has not been created — starts the camera's config engine early and the camera
      * then comes up to a black screen. Everything that touches those classes goes through here.
+     *
+     * <p>Public because the shutter probe needs the same timing and lives in its own package.
      */
-    static void afterApplication(final ClassLoader classLoader, final Runnable task) {
+    public static void afterApplication(final ClassLoader classLoader, final Runnable task) {
         XC_MethodHook arm = new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
                 task.run();

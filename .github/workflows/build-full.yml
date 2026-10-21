@@ -66,7 +66,14 @@ jobs:
           # Data only. Deliberately NOT module/system (the X9 libraries) and not the config/ISP/gamma
           # payloads: this build never substitutes a system file.
           for DIR in meishe_lut x10_basictone setting_Retro gr_adjustment_lmt \
-                     master_color watermark_master_styles watermark_drawables ipu; do
+                     master_color watermark_master_styles watermark_drawables ipu \
+                     pld_watermark apk_resources; do
+            # Loud, not silent: pld_watermark and apk_resources are what POP draws with, and a build
+            # without them is the build that kept reporting "POP PLD resources missing".
+            if [ ! -d "$UP/module/payload/$DIR" ]; then
+              echo "::error::upstream payload/$DIR is missing at $UPSTREAM_SHA"
+              exit 1
+            fi
             cp -a "$UP/module/payload/$DIR" "module/payload/$DIR"
           done
           # The X10 filters 清透 / 琥珀 ship as version 4 / 33^3 LUTs, a shape the GT7 Pro firmware
@@ -115,9 +122,13 @@ jobs:
           fi
           unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c . || true
           for DIR in meishe_lut x10_basictone setting_Retro gr_adjustment_lmt master_color \
-                     watermark_master_styles watermark_drawables ipu; do
+                     watermark_master_styles watermark_drawables ipu pld_watermark apk_resources; do
             printf '%s %s\n' "$DIR" "$(unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c "payload/$DIR/")"
           done
+          # POP paints the viewfinder with these; an empty payload here is the "POP PLD resources
+          # missing" line in the module log and a retro UI with nothing to draw.
+          unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -q "payload/pld_watermark/pld/pld.json"
+          unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -q "payload/apk_resources/json/"
           du -h OmniCam-Muse-GT7Pro-KSU.zip OmniCam-Muse-GT7Pro.apk
 
       - name: Publish

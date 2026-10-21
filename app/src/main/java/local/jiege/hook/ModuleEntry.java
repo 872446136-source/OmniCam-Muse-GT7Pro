@@ -23,6 +23,7 @@ import local.jiege.hook.mastercolor.MasterColor;
 import local.jiege.hook.masterfilter.MasterFilterCompletion;
 import local.jiege.hook.masterlut.MasterContrast;
 import local.jiege.hook.masterlut.MasterLutSlots;
+import local.jiege.hook.modes.GlGuard;
 import local.jiege.hook.modes.ModeGates;
 import local.jiege.hook.modes.ModePlacement;
 import local.jiege.hook.modes.ModeProbe;
@@ -32,6 +33,7 @@ import local.jiege.hook.palette.GalleryColorPalette;
 import local.jiege.hook.pop.PopPort;
 import local.jiege.hook.seamless.SeamlessBlurGuard;
 import local.jiege.hook.shutter.CameraSoundForced;
+import local.jiege.hook.shutter.ShutterDispatch;
 import local.jiege.hook.shutter.ShutterSound;
 import local.jiege.hook.softlight.SoftLight;
 import local.jiege.hook.tilt.TiltShiftCapture;
@@ -113,6 +115,12 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
             // Read-only: logs the name-to-id lookup, the row lookup behind "the device is not
             // support the mode", and the table itself. GR and POP still freeze on switch.
             ModeProbe.installCamera(classLoader);
+            // POP paints a rounded-rect mask over the viewfinder and this build's shader program for
+            // it is null; 473 died of that on the preview GL thread eight milliseconds after POP
+            // finished switching in, and the camera never painted again.
+            GlGuard.installCamera(classLoader);
+            // GR: the press is delivered but nothing follows. This says whether it becomes an event.
+            ShutterDispatch.installCamera(classLoader);
             ModeDataReset.ensure(param.appInfo != null && param.appInfo.dataDir != null
                 ? param.appInfo.dataDir : "/data/user/0/" + CAMERA);
         }

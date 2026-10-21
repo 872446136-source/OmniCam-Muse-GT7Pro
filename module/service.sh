@@ -117,6 +117,29 @@ if [ -d "$PAYLOAD/gr_adjustment_lmt" ] && [ -d /odm/etc/camera/basictone/lmt ]; 
     chown -R "$APP_UID:$APP_UID" "$APP/files/ricoh_gr"
 fi
 
+# POP resources. The mode itself is reached through the config profile, but three things it draws
+# with are not in this camera APK: the Polaroid watermark (PLD), the retro UI animations and the
+# guide images. They are staged here and PopResources points the camera at them; without them the
+# hook bails out with "POP PLD resources missing" and the retro UI comes up with nothing to paint.
+#
+# setting_Retro is staged too because pop_path_remap.cpp serves /odm/etc/camera/basictone/setting_Retro
+# from here when the merged /odm tree has no copy; meishe_lut is not duplicated — post-fs-data.sh
+# already merges the whole tree into /odm, so a second 5 MB copy would only be served by a fallback
+# that never runs.
+POP_ASSET=$APP/files/pop_port
+if [ -d "$PAYLOAD/pld_watermark" ] || [ -d "$PAYLOAD/apk_resources" ]; then
+    mkdir -p "$POP_ASSET/pld_watermark" "$POP_ASSET/apk_resources/json" \
+        "$POP_ASSET/apk_resources/img" "$POP_ASSET/setting_Retro"
+    [ -d "$PAYLOAD/pld_watermark" ] && cp -a "$PAYLOAD/pld_watermark/." "$POP_ASSET/pld_watermark/"
+    [ -d "$PAYLOAD/apk_resources" ] && cp -a "$PAYLOAD/apk_resources/." "$POP_ASSET/apk_resources/"
+    if [ -d "$PAYLOAD/setting_Retro" ]; then
+        cp -f "$PAYLOAD/setting_Retro"/* "$POP_ASSET/setting_Retro/" 2>/dev/null || true
+    fi
+    chown -R "$APP_UID:$APP_UID" "$POP_ASSET"
+    find "$POP_ASSET" -type d -exec chmod 0755 {} \;
+    find "$POP_ASSET" -type f -exec chmod 0644 {} \;
+fi
+
 # Master colour (大师色彩): the engine data, scene profiles and look tables. Baked preview tables
 # (files/jiege/mastercolor/live) come from the camera and are rebuilt when the module changes; the
 # selected look survives the refresh.

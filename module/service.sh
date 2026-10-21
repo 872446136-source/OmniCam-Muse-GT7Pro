@@ -61,9 +61,12 @@ set_config() {
 }
 
 # GR mode is enabled through the app's own feature switch. The HDR capture list names only modes that
-# have a decision tree on this device: retroCamera is left out (no retro branch), xpan is not listed
-# because its HDR support is unverified even though the mode itself is now reachable.
+# have a decision tree on this device: retroCamera is left out (its HDR support is unverified), xpan is
+# not listed because its HDR support is unverified even though the mode itself is now reachable.
 set_config com.oplus.gr.mode.support 1
+# POP: the mode row in mode_data.db is written only when this flag is on (ModeDataSQLiteOpenHelper
+# i()/j()), and the module stages the setting_Retro basictone it renders with.
+set_config com.oplus.feature.retro.camera.support 1
 set_config com.oplus.camera.mode.data.db.version 102
 set_config com.oplus.available.gr.mode.zoomvalues "$GR_AVAILABLE"
 set_config com.oplus.gr.mode.marked.zoomvalues "$GR_MARKED"

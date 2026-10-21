@@ -84,27 +84,28 @@ public final class GrGalleryWatermark {
             });
     }
 
-    /** Built-in GR style assets are replaced by the staged files. */
+    /**
+     * Built-in GR style assets are replaced by the staged files.
+     *
+     * <p>Swapping the StyleSource object for a FileStyleSource is not an option on 17.10.37: the
+     * obfuscated class carries its constructor nowhere the dex exposes, so reflection finds no
+     * constructor to call at all. The asset source is still a plain "context.getAssets().open(name)"
+     * wrapper, so the stream itself is redirected instead, which is the same thing one call later.
+     */
     private static void hookStyleSource(final Symbols symbols) {
         try {
-            final Class<?> assetSource = symbols.cls("AssetStyleSource");
-            final Class<?> fileSource = symbols.cls("FileStyleSource");
-            logConstructors(fileSource);
-            XposedBridge.hookMethod(symbols.method("StyleLoader.resolve"),
+            XposedBridge.hookMethod(symbols.method("AssetStyleSource.stream"),
                 new XC_MethodHook() {
                     @Override protected void beforeHookedMethod(MethodHookParam param) {
                         try {
-                            Object source = param.args[0];
-                            if (!assetSource.isInstance(source)) return;
-                            String fileName = styleFileName((String) symbols.get("AssetStyleSource.name", source));
+                            String fileName = styleFileName((String) symbols.get("AssetStyleSource.name", param.thisObject));
                             if (fileName == null) return;
                             File style = new File(STYLE_DIR, fileName);
                             if (!style.isFile()) {
                                 Log.i(TAG, "gallery GR style missing " + style);
                                 return;
                             }
-                            Object replacement = fileStyleSource(fileSource, style);
-                            if (replacement != null) param.setResult(replacement);
+                            param.setResult(new FileInputStream(style));
                         } catch (Throwable error) {
                             Log.e(TAG, "gallery GR style routing failed", error);
                         }
@@ -113,64 +114,6 @@ public final class GrGalleryWatermark {
         } catch (Throwable error) {
             Log.e(TAG, "gallery GR style routing setup failed", error);
         }
-    }
-
-    /** Logged once, so a report from a gallery whose constructors differ says which ones it has. */
-    private static void logConstructors(Class<?> type) {
-        try {
-            StringBuilder out = new StringBuilder();
-            for (java.lang.reflect.Constructor<?> constructor : type.getDeclaredConstructors()) {
-                if (out.length() > 0) out.append(", ");
-                out.append('(');
-                Class<?>[] types = constructor.getParameterTypes();
-                for (int i = 0; i < types.length; i++) {
-                    if (i > 0) out.append(',');
-                    out.append(types[i].getSimpleName());
-                }
-                out.append(')');
-            }
-            Log.i(TAG, "gallery file style source " + type.getName() + " constructors " + out);
-        } catch (Throwable error) {
-            Log.e(TAG, "gallery style source constructors unreadable", error);
-        }
-    }
-
-    /**
-     * A FileStyleSource for a staged style file. The class is obfuscated and its constructor has
-     * changed between gallery versions (17.10.37 has no single-String one), so the shapes the camera
-     * side is known to use are tried in turn; null when none of them fits, which leaves the built-in
-     * asset in place instead of failing the editor.
-     */
-    private static Object fileStyleSource(Class<?> type, File style) {
-        String path = style.getAbsolutePath();
-        Class<?>[][] shapes = {
-            {String.class},
-            {String.class, Boolean.TYPE},
-            {String.class, Integer.TYPE},
-            {File.class},
-            {String.class, String.class},
-        };
-        Object[][] args = {
-            {path},
-            {path, Boolean.FALSE},
-            {path, 0},
-            {style},
-            {path, null},
-        };
-        for (int i = 0; i < shapes.length; i++) {
-            try {
-                java.lang.reflect.Constructor<?> constructor = type.getDeclaredConstructor(shapes[i]);
-                constructor.setAccessible(true);
-                return constructor.newInstance(args[i]);
-            } catch (NoSuchMethodException missing) {
-                // try the next shape
-            } catch (Throwable error) {
-                Log.e(TAG, "gallery file style source " + java.util.Arrays.toString(shapes[i]) + " failed", error);
-                return null;
-            }
-        }
-        Log.i(TAG, "gallery file style source has no usable constructor, styles stay built in");
-        return null;
     }
 
     /** "watermark_master_styles/gr_style_N.json" -> "gr_style_N.json"; null for anything else. */

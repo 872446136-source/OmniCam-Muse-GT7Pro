@@ -9,6 +9,7 @@ import local.jiege.hook.common.ConfigProfile;
 import local.jiege.hook.common.Diagnostics;
 import local.jiege.hook.common.Install;
 import local.jiege.hook.common.Log;
+import local.jiege.hook.common.ModeDataReset;
 import local.jiege.hook.common.Symbols;
 import local.jiege.hook.filters.FilterGroupInjector;
 import local.jiege.hook.gallery.AddressNavigation;
@@ -93,8 +94,16 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         Symbols.install("camera", classLoader, param.appInfo.sourceDir, param.appInfo.dataDir);
 
         // Before the capabilities probe: the profile is what makes the modes the firmware ships but
-        // never lists (tilt-shift, XPAN, GR) visible to hasMode() on this very start.
+        // never lists (tilt-shift, XPAN, GR, POP) visible to hasMode() on this very start.
         ConfigProfile.ensure(classLoader);
+
+        // The mode bar is read from a database the camera seeds once, not from the config, so a mode
+        // that only became allowed after that seed never shows up. Dropped here, in the camera's own
+        // main process, once per module version.
+        if (CAMERA.equals(param.processName)) {
+            ModeDataReset.ensure(param.appInfo != null && param.appInfo.dataDir != null
+                ? param.appInfo.dataDir : "/data/user/0/" + CAMERA);
+        }
 
         // The native half carries the in-process path redirection (master colour live tables, GR LMT,
         // imported master filters) and the library-side hooks (LMT params, soft light, LUT slots).
@@ -150,13 +159,16 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
             () -> HighPixel200mFace.installCamera(classLoader));
 
         // --- mode dependent: the mode has to exist in this device's mode_type_list ---
-        // On GT7 Pro the profile adds tilt_shift_mode / xpan_mode / gr_mode, so these turn on
-        // through the config remap rather than through a firmware that lists them.
-        boolean retroMode = Capabilities.retro() && Capabilities.hasMode("retro_camera_mode");
+        // On GT7 Pro the profile adds tilt_shift_mode / xpan_mode / gr_mode / retro_camera_mode, so
+        // these turn on through the config remap rather than through a firmware that lists them. The
+        // mode bar itself comes from the camera's mode database, which ModeDataReset drops once so
+        // the new entries get seeded.
+        boolean retroTuning = Capabilities.retro();
+        boolean retroMode = retroTuning && Capabilities.hasMode("retro_camera_mode");
         Install.run("POP 复古相机", retroMode && nativeLibrary,
-            !Capabilities.retro()
-                ? "本机没有 setting_Retro basictone"
-                : "本机决策树没有 retro 分支，且决策配置加密补不出节点",
+            !retroTuning
+                ? "本机没有 setting_Retro basictone（KSU 模块没刷入 retro 数据）"
+                : "本机 mode_type_list 没有 retro_camera_mode（配置 profile 未生效）",
             () -> PopPort.installCamera(classLoader, CAMERA.equals(param.processName)));
         Install.run("无缝模糊保护", retroMode, "POP 未启用，无需保护",
             () -> SeamlessBlurGuard.installCamera(classLoader));

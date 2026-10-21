@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse 4.3 GT7Pro
-versionCode=440
+version=Muse 4.4 GT7Pro
+versionCode=450
 author=local-port
-description=单版本，无 Lite。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置：配置改动走 profile（相机进程自己从 APK 写入 /data/user/0/com.oplus.camera/files/jiege/profile）+ 原生路径重定向，只影响相机进程。本版新增：理光 GR 模式入口；移轴 / XPAN 真正生效（上一版 profile 被 restorecon 弄坏）；清透 / 琥珀 滤镜黑屏修复（v4 LUT 转 v1）；相册 2 个符号未匹配修复。关原生层：touch /data/adb/omnicam_native_off；全关：touch /data/adb/omnicam_off。均需重启。
+description=单版本，无 Lite。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置：配置改动走 profile（相机进程自己从 APK 写入 /data/user/0/com.oplus.camera/files/jiege/profile）+ 原生路径重定向，只影响相机进程。本版新增：相机模式栏读的是 mode_data.db，删一次让它重新播种，理光 GR / POP 复古 才真正出现在相机里；相册 GR 水印样式改由 getInputStream 重定向（17.10.37 的 FileStyleSource 没有可调构造器）；相册 Section.cameraStyles 唯一化（上一版 3 个候选）。关原生层：touch /data/adb/omnicam_native_off；全关：touch /data/adb/omnicam_off。均需重启。

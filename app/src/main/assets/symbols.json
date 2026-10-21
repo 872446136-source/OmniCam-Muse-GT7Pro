@@ -2227,12 +2227,6 @@
     "AssetStyleFileSource(assetName='"
    ]
   },
-  "FileStyleSource": {
-   "kind": "class",
-   "strings": [
-    "FileStyleSource(filePath='"
-   ]
-  },
   "StyleSource": {
    "kind": "class",
    "interfaceOf": "@AssetStyleSource"
@@ -2276,8 +2270,14 @@
    "in": "com.oplus.gallery.photoeditor.editingvvm.watermarkCamera.WatermarkCameraSection",
    "params": [],
    "ret": "boolean",
+   "invokes": [
+    "Lcom/coui/appcompat/segmentbutton/COUISegmentButtonLayout;->getSelectedSegmentPosition()I",
+    "Lcom/coui/appcompat/tablayout/COUITabLayout;->getSelectedTabPosition()I"
+   ],
+   "notInvokes": [
+    "Landroid/widget/CompoundButton;->isChecked()Z"
+   ],
    "calledBy": [
-    "@Section.backButtonSetup",
     "@Section.onCreate"
    ]
   },
@@ -2409,6 +2409,13 @@
    "invokes": [
     "Lcom/oplus/gallery/framework/abilities/watermark/masterstyle/WatermarkMasterStyle$Companion;->getStyleFileNameById(Ljava/lang/String;)Ljava/lang/String;"
    ]
+  },
+  "AssetStyleSource.stream": {
+   "kind": "method",
+   "in": "@AssetStyleSource",
+   "name": "getInputStream",
+   "params": [],
+   "ret": "java.io.InputStream"
   }
  }
 }

@@ -18,6 +18,7 @@
       "fastvideo_mode",
       "professional_mode",
       "gr_mode",
+      "retro_camera_mode",
       "master_video_mode",
       "street_mode",
       "slowvideo_mode",
@@ -32,6 +33,7 @@
       "fastvideo_mode",
       "professional_mode",
       "gr_mode",
+      "retro_camera_mode",
       "id_photo_mode",
       "slowvideo_mode",
       "master_video_mode",
@@ -49,6 +51,7 @@
       "video_mode",
       "professional_mode",
       "gr_mode",
+      "retro_camera_mode",
       "master_video_mode",
       "slowvideo_mode",
       "photo_mode",
@@ -78,7 +81,8 @@
       "street_mode",
       "under_water_mode",
       "tilt_shift_mode",
-      "gr_mode"
+      "gr_mode",
+      "retro_camera_mode"
     ],
     "rear_portrait": [
       "portrait_mode"
@@ -182,7 +186,8 @@
     "tilt_shift_mode": "8001",
     "tilt_Shift_fastvideo_mode": "800C",
     "xpan_mode": "80AC",
-    "gr_mode": "8009"
+    "gr_mode": "8009",
+    "retro_camera_mode": "8001"
   },
   "usecase_info": {
     "sat_photo_case": [

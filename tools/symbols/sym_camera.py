@@ -87,6 +87,8 @@ add(
  ZoomValues__forMode=M(**{"in": "@ZoomValues"}, params=[S], ret="java.util.List", static=True, strings=["com.oplus.available.gr.mode.zoomvalues"]),
  ZoomValues__parseWide=M(**{"in": "@ZoomValues"}, params=["java.util.List"], ret="java.util.List", static=True, strings=["parseAvailableWideZoomValues, fail to parse zoom data"]),
  CameraConfig__list=M(**{"in": "com.oplus.camera.configure.CameraConfig"}, params=[S], ret="java.util.List", static=True),
+ # The flag reader the mode database is seeded through; the names are not obfuscated.
+ CameraConfig__flag=M(**{"in": "com.oplus.camera.configure.CameraConfig"}, name="getConfigBooleanValue", params=[S], ret="boolean", static=True),
  FocalLength=K(strings=["ZoomStreetFocalLengthUnit", "0.6(16)"]),
  FocalLength__millimetres=M(**{"in": "@FocalLength"}, params=["float"], ret="float", strings=["ZoomStreetFocalLengthUnit"]),
  ZoomUi=K(strings=[", isNoneSatTeleDVOpen: ", "changeZoom, value: "]),

@@ -23,6 +23,7 @@ import local.jiege.hook.mastercolor.MasterColor;
 import local.jiege.hook.masterfilter.MasterFilterCompletion;
 import local.jiege.hook.masterlut.MasterContrast;
 import local.jiege.hook.masterlut.MasterLutSlots;
+import local.jiege.hook.modes.ModeGates;
 import local.jiege.hook.modestate.ModeStateSplit;
 import local.jiege.hook.natural.NaturalMode;
 import local.jiege.hook.palette.GalleryColorPalette;
@@ -98,9 +99,11 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         ConfigProfile.ensure(classLoader);
 
         // The mode bar is read from a database the camera seeds once, not from the config, so a mode
-        // that only became allowed after that seed never shows up. Dropped here, in the camera's own
-        // main process, once per module version.
+        // that only became allowed after that seed never shows up. The rows are written behind
+        // CameraConfig flags this device's config does not carry, so those are answered first, and
+        // then the database is dropped in the camera's own main process once per module version.
         if (CAMERA.equals(param.processName)) {
+            ModeGates.installCamera(classLoader);
             ModeDataReset.ensure(param.appInfo != null && param.appInfo.dataDir != null
                 ? param.appInfo.dataDir : "/data/user/0/" + CAMERA);
         }

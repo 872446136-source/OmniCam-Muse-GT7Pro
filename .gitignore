@@ -1,3 +1,9 @@
+# fetched at build time by .github/workflows/build-full.yml (upstream data layer)
+/module/payload/
+/module/system/
+/module/merged/
+/module/bind.log
+
 # build outputs and local state
 /.gradle/
 /.kotlin/

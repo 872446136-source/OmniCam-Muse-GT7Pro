@@ -2,9 +2,11 @@
 # points at it before the reboot that activates the module. A failed install (e.g. a different
 # signing key) is left as it is and logged to install.log; the installed app is never uninstalled.
 
-# 测试分支：payload 与 system/ 都保留（这是上游 X9 Ultra 的原件，暴力移植就是要它）。
+# One build for every device: the payload carries only the data layer (LUTs, basictone, GR LMT,
+# watermark artwork), never a system library. A device whose camera config the module cannot
+# substitute keeps working, because the features that need it turn themselves off at install time.
 if [ ! -d "$MODPATH/payload" ]; then
-    ui_print "- WARNING: payload missing, this zip was built without the upstream payload"
+    ui_print "- WARNING: payload missing, only the app-layer features will run"
 fi
 
 PACKAGE=local.jiege.camera

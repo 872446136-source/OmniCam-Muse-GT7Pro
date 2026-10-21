@@ -1,0 +1,127 @@
+name: build
+
+# One build, every feature. The upstream data layer (LUTs, basictone, GR LMT, master colour, watermark
+# artwork) is pulled at build time and is the only thing taken from the Find X9 Ultra tree: no system
+# library and no ODM config is ever packaged, because replacing those is what takes the camera down on
+# a device with a different SoC and a different config format.
+
+on:
+  push:
+    branches: ['test/full', 'main']
+    paths-ignore:
+      - '**.md'
+      - 'GT7Pro-适配/**'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-full
+  cancel-in-progress: true
+
+env:
+  # Upstream commit the data layer is taken from. Bump it when the fork is re-synced.
+  UPSTREAM_SHA: 8f373e10b17c95532a3ff2f41c4777ca797da947
+  RELEASE_TAG: full
+
+jobs:
+  build:
+    name: assemble, sign, package
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Android SDK (platform 37, build-tools 37, NDK 29, CMake 3.22.1)
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          SDKM=$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | tail -1)
+          echo "sdkmanager: $SDKM"
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          "$SDKM" --install "platforms;android-37.0" || "$SDKM" --install "platforms;android-37.1"
+          "$SDKM" --install "build-tools;37.0.0" || "$SDKM" --install "build-tools;36.1.0"
+          "$SDKM" --install "ndk;29.0.14206865"
+          "$SDKM" --install "cmake;3.22.1"
+          ls "$SDK/platforms" "$SDK/build-tools" "$SDK/ndk" "$SDK/cmake"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+
+      - name: Fetch the upstream data layer
+        run: |
+          set -eux
+          curl -sSL --retry 3 --retry-delay 5 \
+            "https://codeload.github.com/benbaobaoshigemi/OmniCam-Muse/tar.gz/${UPSTREAM_SHA}" -o /tmp/upstream.tar.gz
+          mkdir -p /tmp/up
+          tar xzf /tmp/upstream.tar.gz -C /tmp/up
+          UP=$(ls -d /tmp/up/*)
+          mkdir -p module/payload
+          # Data only. Deliberately NOT module/system (the X9 libraries) and not the config/ISP/gamma
+          # payloads: this build never substitutes a system file.
+          for DIR in meishe_lut x10_basictone setting_Retro gr_adjustment_lmt \
+                     master_color watermark_master_styles watermark_drawables ipu; do
+            cp -a "$UP/module/payload/$DIR" "module/payload/$DIR"
+          done
+          du -sh module/payload/*
+
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: assembleRelease
+        run: |
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --console=plain --stacktrace
+
+      - name: Sign
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)
+          cp app/build/outputs/apk/release/app-release-unsigned.apk unsigned.apk
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks signing/port.p12 --ks-type PKCS12 \
+            --ks-pass pass:omnicam --key-pass pass:omnicam \
+            --out OmniCam-Muse-GT7Pro.apk unsigned.apk
+          "$BUILD_TOOLS/apksigner" verify --print-certs OmniCam-Muse-GT7Pro.apk
+          "$BUILD_TOOLS/aapt2" dump badging OmniCam-Muse-GT7Pro.apk | head -1
+          unzip -l OmniCam-Muse-GT7Pro.apk | grep -E "native_init|libjiege_native"
+
+      - name: Package the KernelSU module
+        run: |
+          set -eux
+          cp OmniCam-Muse-GT7Pro.apk module/omnicam-muse-lite.apk
+          python3 tools/zip_module.py module OmniCam-Muse-GT7Pro-KSU.zip
+          # Guard rails: the zip must carry no library and no /odm tree. A regression here is exactly
+          # the black-screen bug this build exists to remove.
+          if unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -E '\.so$|^.*system/'; then
+            echo "::error::the module zip carries a library or a system/ tree"
+            exit 1
+          fi
+          unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c . || true
+          for DIR in meishe_lut x10_basictone setting_Retro gr_adjustment_lmt master_color \
+                     watermark_master_styles watermark_drawables ipu; do
+            printf '%s %s\n' "$DIR" "$(unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c "payload/$DIR/")"
+          done
+          du -h OmniCam-Muse-GT7Pro-KSU.zip OmniCam-Muse-GT7Pro.apk
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "OmniCam Muse GT7 Pro" \
+              --notes "单版本，所有功能按设备能力自动装配。"
+          fi
+          gh release upload "$RELEASE_TAG" OmniCam-Muse-GT7Pro-KSU.zip OmniCam-Muse-GT7Pro.apk --clobber
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | "\(.name) \(.size)"'

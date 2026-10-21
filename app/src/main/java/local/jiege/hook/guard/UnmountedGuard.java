@@ -1,24 +1,24 @@
 package local.jiege.hook.guard;
 
-import android.system.Os;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
+import local.jiege.hook.common.Capabilities;
 import local.jiege.hook.common.DataStore;
 import local.jiege.hook.common.Diagnostics;
 import local.jiege.hook.common.Log;
 import local.jiege.hook.common.Symbols;
 
 /**
- * The camera without the module's /odm files: KernelSU 卸载模块 for the camera, enforced for every
- * app when Zygisk Next's denylist is on (the 10007 ad-block module turns it on at each boot).
- * The camera then reads its stock feature config and never builds the GR / POP mode UI; entering
- * those modes crashes or hangs (RetroCameraUIContainer.showUIInternal). ModuleEntry installs no
- * features then, and this guard keeps the camera out of GR / POP.
+ * The camera without the module's payload: KernelSU 卸载模块 for the camera, enforced for every app
+ * when Zygisk Next's denylist is on (the 10007 ad-block module turns it on at each boot).
+ *
+ * <p>This build installs a feature only when {@link Capabilities} says its inputs are there, so a
+ * missing payload no longer disables the whole camera: the data-layer features skip themselves and
+ * the app-layer ones keep working. What remains is this guard, which keeps the camera out of the GR /
+ * POP UI the app would otherwise build against tables that are not mounted.
  */
 public final class UnmountedGuard {
     private static final String TAG = "UnmountedGuard";
-    /** Bind-mounted from /data by the KSU module, so it sits on another device than its directory. */
-    private static final String FEATURE_CONFIG = "/odm/etc/camera/config/camera_unit_feature_config.protobuf";
 
     private static volatile Object modeKey;
     private static volatile boolean logged;
@@ -26,11 +26,7 @@ public final class UnmountedGuard {
     private UnmountedGuard() {}
 
     public static boolean filesMounted() {
-        try {
-            return Os.stat(FEATURE_CONFIG).st_dev != Os.stat("/odm/etc/camera/config").st_dev;
-        } catch (Exception error) {
-            return false;
-        }
+        return Capabilities.dataLayer();
     }
 
     /**

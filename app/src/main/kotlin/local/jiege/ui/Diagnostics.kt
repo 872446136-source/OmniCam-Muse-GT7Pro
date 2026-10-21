@@ -14,7 +14,7 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import local.jiege.hook.common.Profile
+import local.jiege.hook.common.Capabilities
 import local.jiege.settings.DiagnosticsContract
 import local.jiege.settings.MasterFilterContract
 import local.jiege.settings.ModuleSettings
@@ -60,17 +60,19 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
             val checks = ArrayList<Check>()
             val lsposed = MasterFilters.visibleToCamera(context)
             checks += Check("LSPosed", lsposed, if (lsposed) "模块已激活" else "模块未激活，在 LSPosed 中启用并勾选相机、相册、系统框架")
-            if (Profile.LITE) {
-                // Lite build: nothing is bind-mounted on purpose, so the mount row would be a false alarm.
-                checks += Check("轻量模式", true, "未挂载 /odm，只装应用层功能")
-            } else {
-                val mounted = moduleMounted()
-                checks += Check("KSU 模块", mounted, if (mounted) "相机库已挂载" else "相机库未挂载，确认 KSU 模块已启用并重启手机")
-            }
+            // This build never replaces a system library or an ODM config; the module only mounts the
+            // data layer (LUTs, basictone, GR LMT, watermark artwork), so that is what is checked.
+            val mounted = moduleMounted()
+            checks += Check(
+                "KSU 模块",
+                mounted,
+                if (mounted) "滤镜 / GR 数据已挂载" else "数据未挂载，确认 KSU 模块已启用并重启手机",
+            )
             val updated = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
             // A process still running hooks from the previous module APK only needs a restart.
             var stale = 0
-            for ((label, report) in listOf("相机" to CameraReport.fetch(context), "相册" to GalleryReport.fetch(context))) {
+            val cameraReport = CameraReport.fetch(context)
+            for ((label, report) in listOf("相机" to cameraReport, "相册" to GalleryReport.fetch(context))) {
                 when {
                     report == null ->
                         checks += Check("${label}注入", false, if (lsposed) "${label}未被注入，在 LSPosed 中勾选${label}后点“重启$label”" else "${label}未被注入")
@@ -92,6 +94,31 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
                     }
                 }
             }
+            // Which features the camera process actually installed, and why the rest did not. One build
+            // runs everywhere; this is the list that says what it became on this phone.
+            val featureLines = cameraReport?.getString(DiagnosticsContract.KEY_FEATURE_STATUS)
+                .orEmpty().lines().filter { it.isNotBlank() }
+            if (featureLines.isNotEmpty()) {
+                val on = featureLines.count { it.startsWith("on\t") }
+                val off = featureLines.filterNot { it.startsWith("on\t") }
+                val detail = buildString {
+                    append("$on 项已启用")
+                    if (off.isEmpty()) {
+                        append("，全部可用")
+                    } else {
+                        append("，${off.size} 项未启用：")
+                        append(
+                            off.joinToString("；") { line ->
+                                val parts = line.split('\t')
+                                val name = parts.getOrNull(1).orEmpty()
+                                val reason = parts.getOrNull(2).orEmpty()
+                                if (reason.isEmpty()) name else "$name（$reason）"
+                            },
+                        )
+                    }
+                }
+                checks += Check("功能装配", true, detail)
+            }
             val problems = checks.count { !it.ok }
             val health = when {
                 problems == 0 -> Health.OK
@@ -101,9 +128,9 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
             return InjectionState(checks, health)
         }
 
-        /** The module's camera libraries are bind-mounted over /odm, so they sit on another device. */
+        /** The module mounts the data layer (LUTs, basictone) over /odm, so it sits on another device. */
         private fun moduleMounted(): Boolean = try {
-            Os.stat("/odm/lib64/libAlgoInterface.so").st_dev != Os.stat("/odm/lib64").st_dev
+            Os.stat(Capabilities.MEISHE_LUT).st_dev != Os.stat(Capabilities.ODM_CAMERA).st_dev
         } catch (_: Exception) {
             false
         }

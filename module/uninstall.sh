@@ -24,8 +24,8 @@ am force-stop com.oplus.camera > /dev/null 2>&1
 am force-stop com.coloros.gallery3d > /dev/null 2>&1
 sleep 1
 
-# 2. Kill switches from the test branch.
-rm -f /data/adb/omnicam_fullport_off /data/adb/omnicam_fullport_nolib
+# 2. Kill switches: this build, plus the ones earlier test builds left behind.
+rm -f /data/adb/omnicam_off /data/adb/omnicam_native_off       /data/adb/omnicam_nostack_off /data/adb/omnicam_fullport_off /data/adb/omnicam_fullport_nolib
 say "kill switches removed"
 
 # 3. Watermark style folders the XPAN isolation backed up: put back what the camera lost, then drop

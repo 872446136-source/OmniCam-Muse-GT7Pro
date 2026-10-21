@@ -1,5 +1,13 @@
 #!/system/bin/sh
-# Bind the tested POP camera directories and GR ISP files.
+# Mounts the module's data layer only.
+#
+# Rule for this build: nothing in /odm is replaced. No system library, no camera config, no ISP bin,
+# no gamma table. Those were what took the camera down on a device that is not a Find X9 Ultra —
+# libAlgoInterface.so from another SoC has different struct layouts, and the X9 config files mean
+# nothing to a Qualcomm tuning stack. What is mounted here is additive data only: LUT trees that the
+# camera reads by name, and one row-patched hardware config built from the device's own file.
+#
+# Kill switch: touch /data/adb/omnicam_off, then reboot.
 MODDIR=${0%/*}
 LOG=$MODDIR/bind.log
 set -u
@@ -11,6 +19,8 @@ log() {
 bind_file() {
     SOURCE="$1"
     TARGET="$2"
+    [ -f "$SOURCE" ] || { log "no source $SOURCE"; return 0; }
+    [ -e "$TARGET" ] || { log "no target $TARGET"; return 0; }
     chown root:root "$SOURCE"
     chmod 0644 "$SOURCE"
     chcon u:object_r:vendor_configs_file:s0 "$SOURCE" 2>/dev/null || true
@@ -29,14 +39,14 @@ label_tree() {
     find "$DIR" -exec chcon u:object_r:vendor_configs_file:s0 {} \; 2>>"$LOG" || true
 }
 
+# Stock tree first, then the payload on top, so the device keeps every LUT it shipped with.
 bind_merged_dir() {
     LIVE=$1
     EXTRA=$2
     DEST=$3
     TARGET=$4
-    log "merge $TARGET from $LIVE"
     if [ ! -d "$LIVE" ]; then
-        log "missing live $LIVE"
+        log "missing live $LIVE, skip $TARGET"
         return 0
     fi
     rm -rf "$DEST"
@@ -46,7 +56,7 @@ bind_merged_dir() {
         cp -a "$EXTRA"/. "$DEST"/
     fi
     label_tree "$DEST"
-    log "live_count=$(ls "$LIVE" | wc -l) merged_count=$(ls "$DEST" | wc -l)"
+    log "merge $TARGET live=$(ls "$LIVE" | wc -l) merged=$(ls "$DEST" | wc -l)"
     if mount --bind "$DEST" "$TARGET" >> "$LOG" 2>&1; then
         log "dir bind ok $TARGET"
     else
@@ -55,57 +65,44 @@ bind_merged_dir() {
 }
 
 : > "$LOG"
-log "begin"
+log "begin $(date)"
 
-# 测试分支：上游 payload 原样往上挂，不做机型判断、不做能力探测。
-# 每个文件单独 bind，失败的记在 bind.log 里，不影响其它文件。
-# 一键关掉（不用卸载模块）：adb shell su -c "touch /data/adb/omnicam_fullport_off"，然后重启。
-if [ -f /data/adb/omnicam_fullport_off ]; then
-    log "kill switch /data/adb/omnicam_fullport_off present, nothing mounted"
+for OFF in /data/adb/omnicam_off /data/adb/omnicam_nostack_off /data/adb/omnicam_fullport_off; do
+    if [ -f "$OFF" ]; then
+        log "kill switch $OFF present, nothing mounted"
+        exit 0
+    fi
+done
+
+# Only mount into a tree this module understands. A device without the OPlus camera LUT directory is
+# not one of them, and guessing there is how a boot ends up with no viewfinder.
+if [ ! -d /odm/etc/camera/meishe_lut ] || [ ! -d /odm/etc/camera/basictone ]; then
+    log "not an OPlus camera tree, nothing mounted"
     exit 0
 fi
 
-for NAME in camera_unit_config camera_unit_feature_config.protobuf oplus_camera_config oplus_camera_algo_switch_config oplus_camera_aps_config oplus_camera_preview_decision_config.json; do
-    bind_file "$MODDIR/payload/$NAME" "/odm/etc/camera/config/$NAME"
-done
-# Forced shutter sound stream at the system volume curve (see tools/patch_audio_volumes.py).
-bind_file "$MODDIR/payload/audio_policy_volumes.xml" /odm/etc/audio/audio_policy_volumes.xml
+bind_merged_dir /odm/etc/camera/meishe_lut "$MODDIR/payload/meishe_lut" \
+    "$MODDIR/merged/meishe_lut" /odm/etc/camera/meishe_lut
 
-bind_merged_dir /odm/etc/camera/meishe_lut "$MODDIR/payload/meishe_lut" "$MODDIR/merged/meishe_lut" /odm/etc/camera/meishe_lut
-
+# basictone: the stock tree plus the X10 tone curves and the retro settings the GR port reads.
 BT_EXTRA=$MODDIR/merged/basictone_extra
 rm -rf "$BT_EXTRA"
-mkdir -p "$BT_EXTRA/setting_Retro"
+mkdir -p "$BT_EXTRA"
+[ -d "$MODDIR/payload/x10_basictone" ] && cp -a "$MODDIR/payload/x10_basictone"/. "$BT_EXTRA"/
 if [ -d "$MODDIR/payload/setting_Retro" ]; then
+    mkdir -p "$BT_EXTRA/setting_Retro"
     cp -a "$MODDIR/payload/setting_Retro"/. "$BT_EXTRA/setting_Retro"/
 fi
-cp -a "$MODDIR/payload/x10_basictone"/. "$BT_EXTRA"/
-bind_merged_dir /odm/etc/camera/basictone "$BT_EXTRA" "$MODDIR/merged/basictone" /odm/etc/camera/basictone
+bind_merged_dir /odm/etc/camera/basictone "$BT_EXTRA" \
+    "$MODDIR/merged/basictone" /odm/etc/camera/basictone
 
-log "polaroid=$(ls -l /odm/etc/camera/meishe_lut/polaroid_sdr.mslut 2>&1)"
-log "host_film=$(ls -l /odm/etc/camera/meishe_lut/fuji-nc.bin 2>&1)"
-log "retro_ini=$(ls -l /odm/etc/camera/basictone/setting_Retro/SimTool_Master.ini 2>&1)"
-log "host_setting=$(ls -d /odm/etc/camera/basictone/setting 2>&1)"
+log "check meishe=$(ls /odm/etc/camera/meishe_lut 2>/dev/null | wc -l) basictone=$(ls /odm/etc/camera/basictone 2>/dev/null | wc -l)"
+log "check lmt=$(ls -d /odm/etc/camera/basictone/lmt 2>&1)"
 
-for LENS in main wide tele ultratele; do
-    NAME="com.qti.tuned.lighthouse${LENS}.bin"
-    SOURCE="$MODDIR/payload/isp/$NAME"
-    TARGET="/odm/lib64/camera/$NAME"
-    chown root:root "$SOURCE"
-    chmod 0644 "$SOURCE"
-    chcon u:object_r:vendor_file:s0 "$SOURCE" 2>>"$LOG" || true
-    if mount --bind "$SOURCE" "$TARGET" >>"$LOG" 2>&1; then
-        log "isp bind ok $TARGET"
-    else
-        log "isp bind FAIL $TARGET"
-    fi
-done
-for NAME in gamma_preview_sdr_conf.json gamma_quick_sdr_conf.json gamma_preview_hdr_conf.json; do
-    bind_file "$MODDIR/payload/gamma/$NAME" "/odm/etc/camera/$NAME"
-done
-# Pro video ISZ (2x main, 6x tele; O-Log2 too): stock sets the ISO gate of rows 25-40 to 0/0,
-# which DoIzoomStable() can never pass; -1 means "no ISO check", like the normal video rows.
-# Patched from the live file on every boot. Touch $MODDIR/disable_pro_video_isz to skip.
+# Pro video ISZ (2x main, 6x tele): stock zeroes the ISO gate of rows 25-40, which DoIzoomStable() can
+# never pass; -1 means "no ISO check". Patched from the device's own file every boot and only mounted
+# when exactly 16 rows matched, so a different config layout is left alone.
+# Touch $MODDIR/disable_pro_video_isz to skip.
 HWCFG=/odm/etc/camera/CameraHWConfiguration.config
 HWOUT=$MODDIR/merged/CameraHWConfiguration.config
 if [ -f "$MODDIR/disable_pro_video_isz" ]; then

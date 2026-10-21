@@ -109,6 +109,7 @@ public final class Diagnostics {
         state.putBoolean(DiagnosticsContract.KEY_FILES_MOUNTED, filesMounted);
         state.putString(DiagnosticsContract.KEY_PROCESS, Application.getProcessName());
         state.putString(DiagnosticsContract.KEY_MODULE_APK, Symbols.modulePath());
+        state.putString(DiagnosticsContract.KEY_FEATURE_STATUS, Install.report());
         return state;
     }
 

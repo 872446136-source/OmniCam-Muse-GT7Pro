@@ -1,22 +1,42 @@
 #!/system/bin/sh
+# Stages the data the camera and gallery read from their own private files.
+#
+# Everything here is additive: files are written into the apps' data directories, never over /odm.
+# Each block is skipped when its payload is absent, so a trimmed build simply does less instead of
+# failing halfway.
+#
+# Kill switch: touch /data/adb/omnicam_off, then reboot.
 
 MODDIR=${0%/*}
 
-# 测试分支：GR / POP / 移轴这些开关照上游写，不判断机型。
-[ -f /data/adb/omnicam_fullport_off ] && exit 0
+for OFF in /data/adb/omnicam_off /data/adb/omnicam_nostack_off /data/adb/omnicam_fullport_off; do
+    [ -f "$OFF" ] && exit 0
+done
 
-PREF_DIR=/data/user/0/com.oplus.camera/shared_prefs
-PREF_FILE="$PREF_DIR/override_config_data.xml"
+PAYLOAD=$MODDIR/payload
 APP=/data/user/0/com.oplus.camera
-OUT=$APP/files/ricoh_gr/lmt
+GALLERY=/data/user/0/com.coloros.gallery3d
 GR_AVAILABLE='0.6(14),1(23),2(47),3(70),6(139),10(230)'
 GR_MARKED='1.2173913(28),1.7391304(40)'
 
-until [ -d "$APP" ]; do
-    sleep 1
-done
+# A bounded wait: a boot must not stall forever if the camera is not installed.
+wait_for() {
+    DIR=$1
+    LIMIT=$2
+    N=0
+    while [ ! -d "$DIR" ] && [ "$N" -lt "$LIMIT" ]; do
+        sleep 1
+        N=$((N + 1))
+    done
+    [ -d "$DIR" ]
+}
+
+wait_for "$APP" 120 || exit 0
 
 APP_UID=$(stat -c %u "$APP")
+PREF_DIR=$APP/shared_prefs
+PREF_FILE=$PREF_DIR/override_config_data.xml
+
 mkdir -p "$PREF_DIR"
 chown "$APP_UID:$APP_UID" "$PREF_DIR"
 chmod 0770 "$PREF_DIR"
@@ -35,133 +55,120 @@ set_config() {
     fi
 }
 
-    set_config com.oplus.gr.mode.support 1
-    set_config com.oplus.camera.mode.data.db.version 102
+# GR mode is enabled through the app's own feature switch. The HDR capture list names only modes this
+# build can actually reach: xpan and retroCamera are dropped because the module no longer enables them.
+set_config com.oplus.gr.mode.support 1
+set_config com.oplus.camera.mode.data.db.version 102
 set_config com.oplus.available.gr.mode.zoomvalues "$GR_AVAILABLE"
 set_config com.oplus.gr.mode.marked.zoomvalues "$GR_MARKED"
-set_config com.oplus.camera.capture.hdr.cap.mode.value 'common,portrait,professional,night,highPixel,xpan,underWater,telephoto,gr,retroCamera'
-set_config com.oplus.camera.preview.hdr.cap.mode.value 'common,professional,night,highPixel,xpan,underWater,telephoto,gr'
+set_config com.oplus.camera.capture.hdr.cap.mode.value 'common,portrait,professional,night,highPixel,underWater,telephoto,gr'
+set_config com.oplus.camera.preview.hdr.cap.mode.value 'common,professional,night,highPixel,underWater,telephoto,gr'
 
-chown "$APP_UID:$APP_UID" "$PREF_FILE"
-chmod 0660 "$PREF_FILE"
-restorecon "$PREF_FILE"
-
-mkdir -p "$OUT"
-chown "$APP_UID:$APP_UID" "$APP/files"
-chmod 0770 "$APP/files"
-for ORIGINAL in /odm/etc/camera/basictone/lmt/*; do
-    NAME=${ORIGINAL##*/}
-    case "$NAME" in
-        LMTPhotoLut*|SCLut*)
-            # Palette LUTs stay in the shared ODM tree; GR uses its own profile.
-            continue
-            ;;
-        SC16*|SC32*|CWCM*)
-            cp "$MODDIR/payload/gr_adjustment_lmt/$NAME" "$OUT/$NAME"
-            ;;
-        *)
-            if [ -L "$OUT/$NAME" ]; then rm "$OUT/$NAME"; fi
-            if [ -d "$ORIGINAL" ]; then
-                mkdir -p "$OUT/$NAME"
-                cp -R "$ORIGINAL/." "$OUT/$NAME/"
-            else
-                cp "$ORIGINAL" "$OUT/$NAME"
-            fi
-            ;;
-    esac
-done
-chown -R "$APP_UID:$APP_UID" "$APP/files/ricoh_gr"
-restorecon -R "$APP/files/ricoh_gr"
-
-# Master colour (大师色彩): engine data, scene front stage profiles and look tables (Lumix / film). Baked tables
-# (files/jiege/mastercolor/live) come from the camera; they are dropped when the module changes so they
-# are rebuilt from the new data. The selected look (written by the hook) survives the refresh.
-MASTER_COLOR=$APP/files/jiege/mastercolor
-MASTER_COLOR_STAMP=$(grep '^versionCode=' "$MODDIR/module.prop")
-if [ "$(cat "$MASTER_COLOR/stamp" 2>/dev/null)" != "$MASTER_COLOR_STAMP" ] || ! cmp -s "$MODDIR/payload/master_color/hncs_engine.bin" "$MASTER_COLOR/hncs_engine.bin" || ! cmp -s "$MODDIR/payload/master_color/scene.bin" "$MASTER_COLOR/scene.bin" || ! diff -rq "$MODDIR/payload/master_color/looks" "$MASTER_COLOR/looks" >/dev/null 2>&1; then
-    LOOK=$(cat "$MASTER_COLOR/look" 2>/dev/null)
-    rm -rf "$MASTER_COLOR"
-    mkdir -p "$MASTER_COLOR"
-    cp "$MODDIR/payload/master_color/hncs_engine.bin" "$MASTER_COLOR/hncs_engine.bin"
-    cp "$MODDIR/payload/master_color/scene.bin" "$MASTER_COLOR/scene.bin"
-    cp -r "$MODDIR/payload/master_color/looks" "$MASTER_COLOR/looks"
-    echo "$MASTER_COLOR_STAMP" > "$MASTER_COLOR/stamp"
-    [ -n "$LOOK" ] && echo "$LOOK" > "$MASTER_COLOR/look"
-fi
-mkdir -p "$MASTER_COLOR/live"
-# GR watermark fonts: the styles name their fonts by URL, which the camera cannot load. Fonts the
-# gallery already downloaded for its watermark editor are copied where the GR hook finds them
-# (FZLTZCHK is also in the camera's own files/video_watermark).
-GALLERY_FONTS=/data/user/0/com.coloros.gallery3d/files/watermark_master/materia
-mkdir -p "$APP/files/jiege/fonts"
-for FONT in GilroySemiBold.otf FZLTZCHK.TTF; do
-    [ -f "$GALLERY_FONTS/$FONT" ] && ! cmp -s "$GALLERY_FONTS/$FONT" "$APP/files/jiege/fonts/$FONT" && cp "$GALLERY_FONTS/$FONT" "$APP/files/jiege/fonts/$FONT"
-done
-chown -R "$APP_UID:$APP_UID" "$APP/files/jiege"
-chmod 0771 "$APP/files/jiege" "$MASTER_COLOR" "$MASTER_COLOR/live"
-restorecon -R "$APP/files/jiege"
-
-# Stage POP before the gallery wait so camera resources are ready at startup.
-ASSET_DIR="$APP/files/pop_port"
-PLD_APP="$APP/files/odm/etc/camera/pld_watermark"
-set_config com.oplus.feature.retro.camera.support 1
-# Flash brightness slider (柔和/反差); the camera drives it through com.oplus.flash.IntensityControl.
-set_config com.oplus.flashlevel.configurable.support 1
-set_config com.oplus.feature.tilt.shift.photo.support 1
-# Tilt-shift: mode_data.db is built once from the feature flags. If it has no tiltShift row yet, drop it once
-# (the marker keeps this to a single time) so the camera recreates it with the tilt-shift flag on.
-TILT_MARK="$MODDIR/tilt_db_reset"
-TILT_DB="$APP/databases/mode_data.db"
-if [ ! -f "$TILT_MARK" ] && [ -f "$TILT_DB" ] && ! grep -aq tiltShift "$TILT_DB"; then
-    am force-stop com.oplus.camera
-    rm -f "$TILT_DB" "$TILT_DB-journal" "$TILT_DB-wal" "$TILT_DB-shm"
-fi
-touch "$TILT_MARK"
 chown "$APP_UID:$APP_UID" "$PREF_FILE"
 chmod 0660 "$PREF_FILE"
 restorecon "$PREF_FILE" 2>/dev/null || true
-mkdir -p "$ASSET_DIR/setting_Retro" "$ASSET_DIR/meishe_lut" "$ASSET_DIR/pld_watermark" "$ASSET_DIR/apk_resources/json" "$ASSET_DIR/apk_resources/img" "$PLD_APP"
-cp -f "$MODDIR/payload/setting_Retro/"* "$ASSET_DIR/setting_Retro/"
-cp -f "$MODDIR/payload/meishe_lut/"* "$ASSET_DIR/meishe_lut/"
-cp -a "$MODDIR/payload/pld_watermark/." "$ASSET_DIR/pld_watermark/"
-cp -a "$MODDIR/payload/pld_watermark/." "$PLD_APP/"
-cp -a "$MODDIR/payload/apk_resources/." "$ASSET_DIR/apk_resources/"
-chown -R "$APP_UID:$APP_UID" "$APP/files/pop_port" "$APP/files/odm"
-find "$ASSET_DIR" "$PLD_APP" -type d -exec chmod 0755 {} \;
-find "$ASSET_DIR" "$PLD_APP" -type f -exec chmod 0644 {} \;
-restorecon -R "$ASSET_DIR" "$APP/files/odm" 2>/dev/null || true
 
-# Normal-mode 25MP unlock (tools/patch_25mp.py): the relaxed config copies; the settings hook adds the
-# "enabled" marker while the switch is on and unlock25mp.cpp redirects reads to these copies.
-UNLOCK_DIR="$APP/files/jiege/unlock25mp"
-mkdir -p "$UNLOCK_DIR"
-rm -f "$UNLOCK_DIR"/live50*  # staged by 1.3.0-1.3.5 (live 50MP, removed)
-cp -f "$MODDIR/payload/unlock25mp/"* "$UNLOCK_DIR/"
-chown -R "$APP_UID:$APP_UID" "$UNLOCK_DIR"
-chmod 0771 "$UNLOCK_DIR"
-find "$UNLOCK_DIR" -type f -exec chmod 0644 {} \;
-restorecon -R "$UNLOCK_DIR" 2>/dev/null || true
+# GR profile: the device's own LMT tree with the GR adjustment tables (SC16/SC32/CWCM) swapped in.
+# Every other entry is copied from /odm as-is, so the profile stays valid for this sensor set.
+if [ -d "$PAYLOAD/gr_adjustment_lmt" ] && [ -d /odm/etc/camera/basictone/lmt ]; then
+    OUT=$APP/files/ricoh_gr/lmt
+    mkdir -p "$OUT"
+    chown "$APP_UID:$APP_UID" "$APP/files"
+    chmod 0770 "$APP/files"
+    for ORIGINAL in /odm/etc/camera/basictone/lmt/*; do
+        NAME=${ORIGINAL##*/}
+        case "$NAME" in
+            LMTPhotoLut*|SCLut*)
+                # Palette LUTs stay in the shared ODM tree; GR uses its own profile.
+                continue
+                ;;
+            SC16*|SC32*|CWCM*)
+                [ -f "$PAYLOAD/gr_adjustment_lmt/$NAME" ] && cp "$PAYLOAD/gr_adjustment_lmt/$NAME" "$OUT/$NAME"
+                ;;
+            *)
+                if [ -L "$OUT/$NAME" ]; then rm "$OUT/$NAME"; fi
+                if [ -d "$ORIGINAL" ]; then
+                    mkdir -p "$OUT/$NAME"
+                    cp -R "$ORIGINAL/." "$OUT/$NAME/"
+                else
+                    cp "$ORIGINAL" "$OUT/$NAME"
+                fi
+                ;;
+        esac
+    done
+    chown -R "$APP_UID:$APP_UID" "$APP/files/ricoh_gr"
+    restorecon -R "$APP/files/ricoh_gr" 2>/dev/null || true
+fi
 
-# 哈苏超清 200MP without the big-face gate (tools/patch_200m_face.py): the decision copies; the settings
-# hook adds the "enabled" marker while the switch is on and face200m.cpp redirects the decision read.
-FACE_DIR="$APP/files/jiege/face200m"
-mkdir -p "$FACE_DIR"
-cp -a "$MODDIR/payload/face200m/." "$FACE_DIR/"
-chown -R "$APP_UID:$APP_UID" "$FACE_DIR"
-find "$FACE_DIR" -type d -exec chmod 0771 {} \;
-find "$FACE_DIR" -type f -exec chmod 0644 {} \;
-restorecon -R "$FACE_DIR" 2>/dev/null || true
+# Master colour (大师色彩): the engine data, scene profiles and look tables. Baked preview tables
+# (files/jiege/mastercolor/live) come from the camera and are rebuilt when the module changes; the
+# selected look survives the refresh.
+MASTER_COLOR=$APP/files/jiege/mastercolor
+if [ -d "$PAYLOAD/master_color" ]; then
+    MASTER_COLOR_STAMP=$(grep '^versionCode=' "$MODDIR/module.prop")
+    if [ "$(cat "$MASTER_COLOR/stamp" 2>/dev/null)" != "$MASTER_COLOR_STAMP" ] \
+        || ! cmp -s "$PAYLOAD/master_color/hncs_engine.bin" "$MASTER_COLOR/hncs_engine.bin" \
+        || ! cmp -s "$PAYLOAD/master_color/scene.bin" "$MASTER_COLOR/scene.bin" \
+        || ! diff -rq "$PAYLOAD/master_color/looks" "$MASTER_COLOR/looks" >/dev/null 2>&1; then
+        LOOK=$(cat "$MASTER_COLOR/look" 2>/dev/null)
+        rm -rf "$MASTER_COLOR"
+        mkdir -p "$MASTER_COLOR"
+        cp "$PAYLOAD/master_color/hncs_engine.bin" "$MASTER_COLOR/hncs_engine.bin"
+        cp "$PAYLOAD/master_color/scene.bin" "$MASTER_COLOR/scene.bin"
+        cp -r "$PAYLOAD/master_color/looks" "$MASTER_COLOR/looks"
+        echo "$MASTER_COLOR_STAMP" > "$MASTER_COLOR/stamp"
+        [ -n "$LOOK" ] && echo "$LOOK" > "$MASTER_COLOR/look"
+    fi
+    mkdir -p "$MASTER_COLOR/live"
+    chmod 0771 "$MASTER_COLOR" "$MASTER_COLOR/live" 2>/dev/null || true
+fi
 
-GALLERY=/data/user/0/com.coloros.gallery3d
-until [ -d "$GALLERY" ]; do
-    sleep 1
+# GR watermark fonts: the styles name their fonts by URL, which the camera cannot load. Fonts the
+# gallery already downloaded are copied where the GR hook looks for them.
+GALLERY_FONTS=$GALLERY/files/watermark_master/materia
+mkdir -p "$APP/files/jiege/fonts"
+for FONT in GilroySemiBold.otf FZLTZCHK.TTF; do
+    if [ -f "$GALLERY_FONTS/$FONT" ] && ! cmp -s "$GALLERY_FONTS/$FONT" "$APP/files/jiege/fonts/$FONT"; then
+        cp "$GALLERY_FONTS/$FONT" "$APP/files/jiege/fonts/$FONT"
+    fi
 done
+chown -R "$APP_UID:$APP_UID" "$APP/files/jiege" 2>/dev/null || true
+chmod 0771 "$APP/files/jiege" 2>/dev/null || true
+restorecon -R "$APP/files/jiege" 2>/dev/null || true
+
+# Camera-side GR watermark styles.
+CAM_ML=$APP/files/mode_limit_watermark
+if [ -d "$PAYLOAD/watermark_master_styles" ]; then
+    mkdir -p "$CAM_ML"
+    for i in 1 2 3 4 5; do
+        ID=gr_style_$i
+        NAME=$ID.json
+        JSON=$PAYLOAD/watermark_master_styles/$NAME
+        if [ -f "$JSON" ]; then
+            mkdir -p "$CAM_ML/$ID"
+            cp -f "$JSON" "$CAM_ML/$ID/$NAME"
+            cp -f "$JSON" "$CAM_ML/$NAME"
+            if [ -d "$PAYLOAD/watermark_drawables" ]; then
+                cp -f "$PAYLOAD/watermark_drawables/"*.webp "$CAM_ML/$ID/" 2>/dev/null || true
+            fi
+        fi
+    done
+    if [ -d "$PAYLOAD/watermark_drawables" ]; then
+        cp -f "$PAYLOAD/watermark_drawables/"*.webp "$CAM_ML/" 2>/dev/null || true
+    fi
+    chown -R "$APP_UID:$APP_UID" "$CAM_ML"
+    find "$CAM_ML" -type f -exec chmod 0644 {} \;
+    find "$CAM_ML" -type d -exec chmod 0755 {} \;
+    restorecon -R "$CAM_ML" 2>/dev/null || true
+fi
+
+wait_for "$GALLERY" 120 || exit 0
 GALLERY_UID=$(stat -c %u "$GALLERY")
-GALLERY_PREF="$GALLERY/shared_prefs/business_featureSwitch_config.xml"
-WAIT=0
-while [ ! -f "$GALLERY_PREF" ] && [ "$WAIT" -lt 120 ]; do
+GALLERY_PREF=$GALLERY/shared_prefs/business_featureSwitch_config.xml
+N=0
+while [ ! -f "$GALLERY_PREF" ] && [ "$N" -lt 120 ]; do
     sleep 1
-    WAIT=$((WAIT + 1))
+    N=$((N + 1))
 done
 if [ -f "$GALLERY_PREF" ]; then
     if grep -q 'name="business_featureSwitch_is_camera_gr_supported"' "$GALLERY_PREF"; then
@@ -171,48 +178,33 @@ if [ -f "$GALLERY_PREF" ]; then
     fi
     chown "$GALLERY_UID:$GALLERY_UID" "$GALLERY_PREF"
     chmod 0660 "$GALLERY_PREF"
-    restorecon "$GALLERY_PREF"
+    restorecon "$GALLERY_PREF" 2>/dev/null || true
 fi
-STYLE_OUT="$GALLERY/files/ricoh_gr_styles"
-mkdir -p "$STYLE_OUT"
-cp "$MODDIR/payload/watermark_master_styles/"*.json "$STYLE_OUT/"
-if [ -d "$MODDIR/payload/watermark_drawables" ]; then
-    cp "$MODDIR/payload/watermark_drawables/"*.webp "$STYLE_OUT/" 2>/dev/null || true
-fi
-CAM_ML="$APP/files/mode_limit_watermark"
-mkdir -p "$CAM_ML"
-for i in 1 2 3 4 5; do
-    ID="gr_style_${i}"
-    NAME="gr_style_${i}.json"
-    JSON="$MODDIR/payload/watermark_master_styles/$NAME"
-    if [ -f "$JSON" ]; then
-        mkdir -p "$CAM_ML/$ID"
-        cp -f "$JSON" "$CAM_ML/$ID/$NAME"
-        cp -f "$JSON" "$CAM_ML/$NAME"
-        if [ -d "$MODDIR/payload/watermark_drawables" ]; then
-            cp -f "$MODDIR/payload/watermark_drawables/"*.webp "$CAM_ML/$ID/" 2>/dev/null || true
-        fi
+
+# Gallery-side GR watermark styles.
+if [ -d "$PAYLOAD/watermark_master_styles" ]; then
+    STYLE_OUT=$GALLERY/files/ricoh_gr_styles
+    mkdir -p "$STYLE_OUT"
+    cp -f "$PAYLOAD/watermark_master_styles/"*.json "$STYLE_OUT/" 2>/dev/null || true
+    if [ -d "$PAYLOAD/watermark_drawables" ]; then
+        cp -f "$PAYLOAD/watermark_drawables/"*.webp "$STYLE_OUT/" 2>/dev/null || true
     fi
-done
-if [ -d "$MODDIR/payload/watermark_drawables" ]; then
-    cp -f "$MODDIR/payload/watermark_drawables/"*.webp "$CAM_ML/" 2>/dev/null || true
+    chown -R "$GALLERY_UID:$GALLERY_UID" "$STYLE_OUT"
+    chmod 0644 "$STYLE_OUT"/* 2>/dev/null || true
+    restorecon -R "$STYLE_OUT" 2>/dev/null || true
 fi
-chown -R "$GALLERY_UID:$GALLERY_UID" "$STYLE_OUT"
-chmod 0644 "$STYLE_OUT"/*
-restorecon -R "$STYLE_OUT"
-# Camera unit SDK with the palette classes (CombineLut, PaletteColorTable) for the gallery's
-# palette editor; the gallery hook loads it in place of the system copy. Dex must be read-only.
-IPU_OUT="$GALLERY/files/jiege_ipu"
-mkdir -p "$IPU_OUT"
-cmp -s "$MODDIR/payload/ipu/com.oplus.camera.unit.sdk.jar" "$IPU_OUT/com.oplus.camera.unit.sdk.jar" || cp -f "$MODDIR/payload/ipu/com.oplus.camera.unit.sdk.jar" "$IPU_OUT/"
-chown "$GALLERY_UID:$GALLERY_UID" "$IPU_OUT"
-chmod 0711 "$IPU_OUT"
-chown 0:0 "$IPU_OUT/com.oplus.camera.unit.sdk.jar"
-chmod 0444 "$IPU_OUT/com.oplus.camera.unit.sdk.jar"
-restorecon "$IPU_OUT"
-# A root-owned file gets no MLS categories from restorecon; take the directory's.
-chcon "$(ls -dZ "$IPU_OUT" | awk '{print $1}')" "$IPU_OUT/com.oplus.camera.unit.sdk.jar"
-chown -R "$APP_UID:$APP_UID" "$CAM_ML"
-find "$CAM_ML" -type f -exec chmod 0644 {} \;
-find "$CAM_ML" -type d -exec chmod 0755 {} \;
-restorecon -R "$CAM_ML"
+
+# Camera unit SDK with the palette classes (CombineLut, PaletteColorTable) for the gallery's palette
+# editor; the gallery hook loads this copy in place of the system one. Dex must be read-only.
+IPU_JAR=$PAYLOAD/ipu/com.oplus.camera.unit.sdk.jar
+if [ -f "$IPU_JAR" ]; then
+    IPU_OUT=$GALLERY/files/jiege_ipu
+    mkdir -p "$IPU_OUT"
+    cmp -s "$IPU_JAR" "$IPU_OUT/com.oplus.camera.unit.sdk.jar" || cp -f "$IPU_JAR" "$IPU_OUT/"
+    chown "$GALLERY_UID:$GALLERY_UID" "$IPU_OUT"
+    chmod 0711 "$IPU_OUT"
+    chown 0:0 "$IPU_OUT/com.oplus.camera.unit.sdk.jar"
+    chmod 0444 "$IPU_OUT/com.oplus.camera.unit.sdk.jar"
+    restorecon "$IPU_OUT" 2>/dev/null || true
+    chcon "$(ls -dZ "$IPU_OUT" | awk '{print $1}')" "$IPU_OUT/com.oplus.camera.unit.sdk.jar" 2>/dev/null || true
+fi

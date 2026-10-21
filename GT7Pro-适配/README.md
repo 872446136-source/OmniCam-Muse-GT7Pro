@@ -1,6 +1,6 @@
 # GT7Pro-适配 目录说明
 
-真我 GT7 Pro（ColorOS 17.0.0.111 / 相机 7.006.112 / 相册 17.10.37）适配 OmniCam-Muse 的产物。
+真我 GT7 Pro（ColorOS 17.0.0.111 / 相机 17.006.112 / 相册 17.10.37）适配 OmniCam-Muse 的产物。
 
 **源码仓库**：https://github.com/872446136-source/OmniCam-Muse-GT7Pro
 **当前版本（单版本重构，刷这个）**：https://github.com/872446136-source/OmniCam-Muse-GT7Pro/releases/tag/full
@@ -35,7 +35,7 @@ ODM 配置覆盖了本机同名文件（天玑 vs 骁龙，结构体与配置格
 | `清理残留.sh` | 卸载模块后补一次清理（模块自带 `uninstall.sh`，这个是手动兜底） |
 | `诊断.sh` | 一次性收集排查信息：模块状态、bind.log、挂载、崩溃日志、相机 provider 状态 |
 | `patch/gt7pro-lite.diff` | **主补丁**：10 个文件，轻量版全部改动（含 symbols.json 的 4 处修正） |
-| `symbols.json` | 按 7.006.112 修正后的完整符号表（覆盖到 `app/src/main/assets/symbols.json`） |
+| `symbols.json` | 按 17.006.112 修正后的完整符号表（覆盖到 `app/src/main/assets/symbols.json`） |
 | `patch/symbols-gt7pro.diff` | 只含 symbols.json 那 4 处修正的 diff（想单独看改动时用） |
 | `tools/replay_gt7pro.py` | 一条命令回放整套符号表，看每个符号在你的 APK 上落到哪 |
 | `tools/index_from_dex.py` | 直接从 dex 二进制生成 `tools/symbols/` 用的索引（不依赖 dexdump / java / androguard） |
@@ -55,14 +55,14 @@ git apply GT7Pro-适配/patch/gt7pro-lite.diff
 
 ```bash
 python tools/replay_gt7pro.py \
-  --camera  "真我GT7Pro相机_7.006.112.apk" \
+  --camera  "真我GT7Pro相机_17.006.112.apk" \
   --gallery "真我GT7Pro相册_17.10.37.apk"
 ```
 
 当前结果：
 
 ```
-== camera: 真我GT7Pro相机_7.006.112.apk
+== camera: 真我GT7Pro相机_17.006.112.apk
 255 symbols, problems: 0
 == gallery: 真我GT7Pro相册_17.10.37.apk
 Section.segmentSetup               !! 0 hits []

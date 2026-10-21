@@ -109,7 +109,11 @@ public final class GrGalleryWatermark {
      */
     private static void hookStyleSource(final Symbols symbols) {
         try {
-            XposedBridge.hookMethod(symbols.method("AssetStyleSource.stream"),
+            // 17.10.41 names the stream reader "stream"; the X9 Ultra build upstream syncs against
+            // calls it "open". Both hand back an InputStream for one asset name, so hook whichever
+            // this gallery build has instead of pinning one name.
+            XposedBridge.hookMethod(symbols.method(symbols.has("AssetStyleSource.stream")
+                ? "AssetStyleSource.stream" : "AssetStyleSource.open"),
                 new XC_MethodHook() {
                     @Override protected void beforeHookedMethod(MethodHookParam param) {
                         try {

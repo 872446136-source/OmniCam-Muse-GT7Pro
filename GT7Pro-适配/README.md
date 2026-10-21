@@ -1,13 +1,15 @@
 # GT7Pro-适配 目录说明
 
-真我 GT7 Pro（ColorOS 17.0.0.111 / 相机 17.006.112 / 相册 17.10.37）适配 OmniCam-Muse 的产物。
+真我 GT7 Pro（ColorOS 17 / 相机 7.013.40 / 相册 17.10.41）适配 OmniCam-Muse 的产物。
+
+本目录里的评估与构建文档写于适配早期（相机 17.006.112 那一代），流程仍然适用，版本号以主 README 为准。
 
 **源码仓库**：https://github.com/872446136-source/OmniCam-Muse-GT7Pro
 **当前版本（单版本重构，刷这个）**：https://github.com/872446136-source/OmniCam-Muse-GT7Pro/releases/tag/full
 
 | 包 | 说明 | 状态 |
 |---|---|---|
-| **`full` / Muse 4.1 GT7Pro** | 单版本，没有 Lite；所有功能都装，按本机能力自动启用；不替换任何系统库或 ODM 配置 | **刷这个** |
+| **`full` / Muse 4.25 GT7Pro（497）** | 单版本，没有 Lite；所有功能都装，按本机能力自动启用；不替换任何系统库或 ODM 配置（Meishe 渲染器除外） | **刷这个** |
 | `nostack-test` | 上一版过渡产物（去掉算法栈） | 已被 `full` 取代 |
 | `v4.0-gt7pro-lite` | 最早的轻量版，只装纯 Java 钩子 | 已被 `full` 取代 |
 | `full-port-test` | 暴力移植原版，实测取景器全黑 | 仅留档 |

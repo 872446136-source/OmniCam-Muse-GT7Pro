@@ -41,6 +41,15 @@ for OFF in /data/adb/omnicam_off /data/adb/omnicam_nostack_off /data/adb/omnicam
     fi
 done
 
+# Release any bind this module left on /odm/etc by a previous run. KernelSU's soft reboot keeps the
+# mount namespace's mounts around, so a rebuild that binds the same target again fails with
+# "device or resource busy" and the previous build's file stays in place. Only mounts whose root is
+# inside this module directory are released; a stock file mounted by someone else is left alone.
+for TARGET in $(awk -v root="${MODDIR#/data}/" 'index($4, root) == 1 && index($5, "/odm/etc/") == 1 { print $1, $5 }' /proc/self/mountinfo | sort -rn | cut -d ' ' -f 2); do
+    log "release $TARGET"
+    umount -l "$TARGET" >> "$LOG" 2>&1 || true
+done
+
 # Mount report. This is the first thing to read in a bug report: it says whether the module layer is
 # actually in the camera's view of /odm, and it names the two mounts that are expected to be there.
 log "meishe_lut=$(ls /odm/etc/camera/meishe_lut 2>/dev/null | wc -l) files"

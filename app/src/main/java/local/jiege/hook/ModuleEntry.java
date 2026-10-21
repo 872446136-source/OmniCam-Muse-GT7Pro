@@ -11,6 +11,8 @@ import local.jiege.hook.common.Install;
 import local.jiege.hook.common.Log;
 import local.jiege.hook.common.ModeDataReset;
 import local.jiege.hook.common.Symbols;
+import local.jiege.hook.capture.CaptureDumps;
+import local.jiege.hook.filterpanel.LegacyFilterPanel;
 import local.jiege.hook.filters.FilterGroupInjector;
 import local.jiege.hook.gallery.AddressNavigation;
 import local.jiege.hook.gallery.BatchWatermark;
@@ -61,6 +63,28 @@ import local.jiege.hook.xpan.XpanViewfinderClean;
  *
  * <p>Obfuscated camera and gallery code is reached through Symbols (fingerprints in
  * assets/symbols.json), resolved once per app build before any feature installs.
+ *
+ * Features:
+ *   filters       filter catalogs, normal and master scope managed apart; group injection
+ *   filterpanel   long press on the master card / palette entry opens the stock filter strip
+ *   gr            Ricoh GR port (camera + gallery watermark)
+ *   mastercolor   master mode colour: live look tables (HNCS, Lumix, film, ...) in place of the stock master LMT
+ *   pop           POP (retro camera) port and POP high pixel
+ *   x10           X10 filters and palette
+ *   palette       palette editing in the gallery photo editor
+ *   gallery       gallery photo details: the address opens a map app; hasselblad / LUMO / GR watermarks for every photo;
+ *                 batch watermark add / undo from the multi-select menu
+ *   highpixel     哈苏超清 (high pixel mode) filters and palette entries
+ *   guard         camera / gallery without the module's /odm files: features off, GR / POP not reopened
+ *   tilt          tilt-shift capture algorithm in the saved photo
+ *   seamless      guard for the seamless-UI blur bitmap (front POP thumbnail crash)
+ *   masterfilter  master filter completion (extra LUTs, neon glow, Portra halation)
+ *   shutter       shutter sound in silent / vibrate mode, own shutter volume (camera + system)
+ *   modestate     flash and live photo state per mode
+ *   video         normal filters at 4K / 60fps in normal video
+ *   launch        quick launch key opens a chosen mode
+ *   natural       natural photo mode: AI detail enhancement and LCE off, extra softening (tuning json, tone transfer)
+ *   capture       RAW / ccmVec / HDRTransform dumps of one frame, all off by default
  */
 public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZygoteInit {
     private static final String CAMERA = "com.oplus.camera";
@@ -180,6 +204,10 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         Install.run("X10 滤镜", data, noData, () -> X10FilterPort.installCamera(classLoader));
         Install.run("哈苏超清滤镜", data, noData, () -> HighPixelEffects.installCamera(classLoader));
         Install.run("大师滤镜补全", data, noData, () -> MasterFilterCompletion.installCamera(classLoader));
+        // 4.4.4: swipe up / long press on the master card or the palette entry opens the stock filter
+        // strip (LegacyFilterPanel). It is pure app UI, so no payload is needed; if this camera build
+        // does not carry the strip's symbols the install fails on its own and the status line says so.
+        Install.run("快速滤镜面板", true, "", () -> LegacyFilterPanel.installCamera(classLoader));
 
         // --- tuning host: serve tables into the stock LMT directory through the path hooks ---
         Install.run("GR 移植", grData && lmt && nativeLibrary, !grData ? noGrData : !lmt ? noLmt : noNative,
@@ -196,6 +224,9 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         Install.run("大师对比度", lmt && nativeLibrary, !lmt ? noLmt : noNative,
             () -> MasterContrast.installCamera(classLoader));
         Install.run("物理柔光", nativeLibrary, noNative, () -> SoftLight.installCamera(classLoader));
+        // 4.4.4: the three dump switches are read once, when the camera process starts, and handed to
+        // the native side; all three default to off.
+        Install.run("成片转储", nativeLibrary, noNative, () -> CaptureDumps.installCamera());
 
         // --- config shape: only where the decision tree is plain text (X9 Ultra and peers) ---
         boolean plain = Capabilities.plainDecision();

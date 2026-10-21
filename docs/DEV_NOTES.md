@@ -35,3 +35,29 @@ Find X9 Ultra（PMA110，骁龙，KernelSU + LSPosed）上的设备操作与排�
 1. 先静态确定「被什么挡住」，再用临时 bind 挂载验证，再固化，最后真实重启复核。重启复核发现过临时挂载测不出的问题（移轴数据库降级，开机早期进程的行为）。
 2. 判断一个算法有没有被调用，看 JPEG 里的 `algo` 清单；判断为什么没被调用，看会话标志、决策日志（`traverseRunAlgo()  [pass]/[fail] |____SINGLE_ALGO_*`）和反汇编。
 3. 修改手机上的东西前先说明，改完记得清理：临时文件、日志、日志开关。
+
+## 同步上游
+
+上游 [OmniCam-Muse](https://github.com/benbaobaoshigemi/OmniCam-Muse) 与这个仓库没有共同的提交历史（这里的 `seed` 是上游 4.0 的裁剪副本，去掉了 `module/payload` 和 `module/system`）。所以不能 `merge`，用 `cherry-pick` 把上游单个版本的改动摘过来，冲突按本机情况解决。
+
+```bash
+git remote add upstream https://github.com/benbaobaoshigemi/OmniCam-Muse.git
+git fetch upstream
+git checkout -b sync/upstream-<版本>
+git cherry-pick -x <上游提交>       # -x 保留来源，看历史知道这份代码来自哪一版
+```
+
+常见的冲突点，以及这里的处理方式：
+
+- `app/src/main/assets/symbols.json`：本机的表是按 7.013.40 的 APK 修正过的，不能整份覆盖。做法是保留本机的键，把上游新增的键追加进去（缺符号只会在日志里记一条 missing，对应的功能自己关掉，不会影响别的）。追加时保持原有顺序，避免整份文件重排。
+- `app/src/main/java/local/jiege/hook/ModuleEntry.java`：本机按 `Install.run` 逐项装配，上游是直接顺序调用。取本机的结构，把上游新增的功能包成一条 `Install.run`，这样设置应用的「注入状态」页能看到它是开着还是失败。
+- `module/post-fs-data.sh`：两边脚本已经不同（本机走挂载层，上游还在 bind 配置）。取本机的，只把上游那段「重建前先卸掉本模块上次留下的 `/odm/etc` 挂载」搬过来，KSU 软重启时会用到。
+- `module/module.prop`、`app/build.gradle.kts`：版本号用本机的，按构建递增 `versionCode`。
+- `README.md`：这份是本机自己写的，不跟上游。
+- `module/payload/**`、`module/system/**`：不入库（见 `.gitignore`）。数据层由 CI 按 `UPSTREAM_SHA` 从上游拉，所以同步完记得把 `.github/workflows/build-full.yml` 里的 `UPSTREAM_SHA` 改成新的上游提交。
+
+同步后至少要过一遍：
+
+1. 用 `GT7Pro-适配/tools/replay_gt7pro.py` 对相机、相册 APK 回放一遍符号表，看新增的符号在本机包上能不能落到位。
+2. `build.ps1` 或 CI 编一次，确认新加的 C++ 源文件都进了 `CMakeLists.txt`。
+3. 刷机后看「注入状态」页，新增功能的条目应该是 on；是 failed 的说明符号没对上或 API 变了。

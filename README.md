@@ -1,87 +1,88 @@
-# OmniCam Muse
+# OmniCam Muse（GT7 Pro）
 
-> ## 这个仓库是 GT7 Pro 的 Lite fork
->
-> 目标机型：**真我 GT7 Pro（RMX5010）**，ColorOS 17，相机 `com.oplus.camera` **7.013.40**，相册 `com.coloros.gallery3d` **17.10.41**（当前版本 `Muse 4.24 GT7Pro` / 496）。
-> 上游 [OmniCam-Muse](https://github.com/benbaobaoshigemi/OmniCam-Muse) 面向 OPPO Find X9 Ultra（PMA110，相机 7.006.119）。
->
-> 拿到 GT7 Pro 的 `/odm` 原始数据后实测确认：两台机器**不是同一配置世代**——决策配置格式不同、原生管线类族不同（本机只有 `24019`，没有 `25021`）、大师色彩与 XPAN 开关为 0、模式库里没有 GR / POP。**不能整包照搬。**
->
-> 所以这个 fork 的做法是：KernelSU 模块只 bind-mount **数据层**（LUT、水印、模式库），**绝不替换任何系统库或 ODM 配置**；所有开关由 LSPosed 应用 `local.jiege.camera` 在进程内回答（配置走 profile 路径重定向 + hook）。原生库、`/odm` 文件本身一个都不动。
->
-> **486 唯一的例外**：`/odm/lib64/libmsnativefilter.so`（Meishe GPU 滤镜渲染器）。POP 的四款胶片和 GR 的四款滤镜是它里面的渲染器，本机固件这份一个都没有（`CNvPolaroid` / `CNvFilterCCD` / `CNvPortra400` / `CNvShapeMask` 全为 0），而 `libAlgoInterface.so` 是按绝对路径 `dlopen` 的，没有回退。`libAlgoInterface.so` 当前解析的 16 个 Meishe 符号，替换件全部仍然导出，另外多三个，没有任何丢失；`service.sh` 在 late_start 用 `nsenter` bind，先检测再 bind 再复查，`touch /data/adb/omnicam_msfilter_off` 或 KernelSU 的「执行」按钮可随时撤回。
->
-> | 文档 | 内容 |
-> |---|---|
-> | [`GT7Pro-适配/适配评估报告.md`](GT7Pro-适配/适配评估报告.md) | 结论 + 四条实测硬证据 + 逐功能兼容矩阵 |
-> | [`GT7Pro-适配/构建说明.md`](GT7Pro-适配/构建说明.md) | 编译、刷入、Lite 功能清单、排错 |
-> | [`GT7Pro-适配/patch/gt7pro-lite.diff`](GT7Pro-适配/patch/gt7pro-lite.diff) | 相对上游的全部改动（10 个文件） |
->
-> **下载**：[Releases](https://github.com/872446136-source/OmniCam-Muse-GT7Pro/releases) —— `OmniCam-Muse-GT7Pro-KSU.zip` 刷模块，`OmniCam-Muse-Lite.apk` 是设置应用。
->
-> **构建**：本仓库**不含** `module/payload/`（200 MB 的 LUT 与调音配置，属于 X9 Ultra，对 GT7 Pro 无用），所以 `build.ps1` 的色彩目录校验会失败。用 GitHub Actions（`.github/workflows/build.yml`，push 到 `main` 或手动触发）产出签名 APK + KSU 模块 zip；本地构建则直接 `./gradlew :app:assembleRelease` 再用 `apksigner` 签名。
->
-> **签名**：`signing/port.p12`（PKCS12，别名 `omnicam`，口令 `omnicam`）随仓库提供，让每次构建的证书一致、可以直接覆盖安装。它是自签名密钥，不用于任何上架用途。
+真我 GT7 Pro 的相机增强模块。给 `com.oplus.camera` 补回机型策略裁掉的模式与调色资产，另外加一些拍摄、相册和视频相关的功能。代码移植自 [OmniCam-Muse](https://github.com/benbaobaoshigemi/OmniCam-Muse)，原项目面向 OPPO Find X9 Ultra。
 
----
+| 项目 | 值 |
+|---|---|
+| 适配机型 | 真我 GT7 Pro（RMX5010），ColorOS 17 |
+| 相机 / 相册 | `com.oplus.camera` 7.013.40 / `com.coloros.gallery3d` 17.10.41 |
+| 模块 ID | `ricoh_pop_x9u` |
+| 设置应用 | `local.jiege.camera`（随模块一起安装） |
+| 当前版本 | Muse 4.25 GT7Pro（versionCode 497） |
+| 上游基线 | Muse 4.4.4（`benbaobaoshigemi/OmniCam-Muse`） |
 
-**OPPO Find X9 Ultra（PMA110）的相机增强模块。** 当前版本 Muse 4.0.0，适配相机 7.006.119。
+本仓库是**完整版**：只有一个包，没有 Lite 分支，也没有 Lite 功能表。所有功能都编译进同一个 APK，装到手机上时再按本机实际能力逐项决定开不开——挂载缺了、符号对不上、模式表里没有的，那一项就不装。设置应用的「注入状态」页会列出每一项的结果和原因，不用看日志猜。
 
-Muse 深入原厂 HAL、相机框架和成像链路，重构画质、色彩与交互逻辑，并补回被机型策略拆开的模式与调色资产。
+模块不改系统库，也不改 `/odm` 下的配置文件。数据层（LUT、水印素材、模式库、调色表）以模块文件系统的形式叠在 `/odm` 上，层里有的文件盖住同名系统文件，其余原样透出。
 
-Muse 由 KernelSU 模块和 LSPosed 设置应用组成：模块通过绑定挂载覆盖 `/odm` 下的相机配置与资源，钩子和原生库在相机、相册进程内工作。停用模块即可完整还原。
+唯一的例外是 `/odm/lib64/libmsnativefilter.so`（Meishe GPU 滤镜渲染器）。POP 的四款胶片和 GR 的四款滤镜跑在它里面，而 GT7 Pro 固件自带的这份没有对应渲染器（`CNvPolaroid`、`CNvFilterCCD`、`CNvPortra400`、`CNvShapeMask` 全为 0），`libAlgoInterface.so` 又是按绝对路径 `dlopen` 的，取不到就黑屏。模块换成带这些渲染器的版本，`libAlgoInterface.so` 当前用到的 16 个符号它在全部仍然导出。`libAlgoInterface.so`、`libBasicTonePhoto*.so`、各 ODM 配置都保持固件原样。
+
+## 安装
+
+需要已 root（KernelSU 或同类的 magic mount 实现）并装好 LSPosed。
+
+1. 从 [Releases](https://github.com/872446136-source/OmniCam-Muse-GT7Pro/releases/tag/full) 下载 `OmniCam-Muse-GT7Pro-KSU.zip`。
+2. 在 KernelSU 里刷入模块并重启。模块自带设置应用，刷入时一并安装。
+3. 在 LSPosed 中启用 OmniCam Muse，作用域勾选**系统框架、相机、相册**。
+4. 强制停止相机，重新打开。
+
+设置入口在桌面的 OmniCam Muse 图标，或 LSPosed 里的模块页。
+
+还原：在 KernelSU 里停用模块并重启，所有挂载随之撤销，相机回到原厂状态。
 
 ## 功能
 
+功能说明按上游 4.4.4 整理。GT7 Pro 上能不能用由本机决定，具体状态看设置应用的「注入状态」页。
+
 ### 画质
 
-- **拍照模式自然化**：关闭 AI 细节增强（文字和纹理不再被网络重绘，头发锐化一并关闭）、关闭局部对比度增强（LCE）、进一步柔化，三项分别开关。柔化不作用于大师模式和理光模式。
-- **25MP 直出**：放宽 25MP 自动切换的照度、ISO、温度和运动条件，配合相机设置中的"超清优先"，明显提高 25MP 直出的触发率。
-- **哈苏超清 200MP**：解除人脸识别门禁。没有大人脸的画面也走真 200M 全像素读出，1.0×、光线充足、非 HDR 等其余条件保持原厂。
+- **拍照模式自然化**：关掉 AI 细节增强和局部对比度增强（LCE），再做一层柔化，三项分别开关。柔化不作用于大师模式和理光模式。
+- **25MP 直出**：放宽 25MP 自动切换的照度、ISO、温度和运动条件，配合相机设置里的「超清优先」提高触发率。
+- **哈苏超清 200MP**：解除人脸门禁，没有大人脸的画面也走全像素读出，其余条件保持原厂。
 
 ### 大师色彩
 
-八个色彩家族，可以混合进原厂大师色彩，也可以完全替换。
+八个色彩家族，可以按权重混进原厂大师色彩，也可以完全替换。
 
 | 家族 | 内容 |
 |---|---|
-| OPPO | 原厂大师色彩，可选 Find X9 Ultra 或 Find X7 Ultra |
+| OPPO | 原厂大师色彩，可选 Find X9 Ultra、Find X8 Ultra、Find X7 Ultra |
 | 基础 | 场景色彩经 Adobe Standard 标定，只套一条传输曲线：标准、直通、Rec.709、Gamma |
-| HNCS | 哈苏自然色彩，色彩映射与色调曲线分别选择"标准"或"复制" |
-| Lumix | 松下 S9 的 15 种照片风格，含 L.ClassicNeo、709 Like、Cinelike D2 / V2、Flat 与多种单色 |
-| 胶片 | Spektrafilm 的 20 种胶片：负片可搭配 8 种相纸或电影拷贝，反转片直接扫描，CMY 密度分别可调 |
+| HNCS | 哈苏自然色彩，色彩映射与色调曲线分别可选标准或复制 |
+| Lumix | 松下 S9 的 15 种照片风格 |
+| 胶片 | Spektrafilm 的 20 种胶片，负片可搭配 8 种相纸或电影拷贝，CMY 密度可调 |
 | Canon | EOS R5 的标准、人像、风光、中性、可靠设置、单色 |
-| Darktable | Sigmoid、Filmic、AgX 色调映射，黑白点、趾部、肩部、对比度与色相保持可调 |
+| Darktable | Sigmoid、Filmic、AgX 色调映射，黑白点、趾部、肩部、对比度与色相可调 |
 | Leica M9 | 徕卡 M9 的色彩矩阵与色调渲染 |
 
-- **混合模式**：影调与色彩分别按权重混入原厂；**替换模式**：完全替换原厂。
-- **曝光对齐**：按中灰、中间调、高光或白点，把所选色彩对齐到原厂大师模式的曝光。
+曝光可以按中灰、中间调、高光或白点对齐到原厂大师模式的曝光。
 
-### 大师模式效果栏补充
+### 大师模式效果栏
 
-- **颗粒**：强度与大小两把尺独立调节，交互与专业模式的色温、色调一致。所有滤镜可用，包括没有 LUT 的"标准"，数值按滤镜分别保存。
-- **对比度**：-100～100，采用理光 GR 的对比度曲线，作用在原厂影调之前。
+- **颗粒**：强度与大小分别调节，所有滤镜可用，数值按滤镜保存。
+- **对比度**：-100 到 100，用理光 GR 的对比度曲线，作用在原厂影调之前。
 
 ### 大师滤镜
 
 - **扩展滤镜**：旧版经典、徕卡、富士、理光与胶片模拟。
-- **列表管理**：长按拖动排序，随意显示或隐藏；隐藏的滤镜，其预设照常可用。
-- **跨模式同步**：拍照、人像与哈苏超清共用大师滤镜的顺序与显示状态。
-- **特殊效果**：霓虹套用 CineStill 800T 风格的光晕与颗粒，和光套用 Portra 的高光溢光。
-- **导入与备份**：批量导入 Rec.709 `.cube` LUT，配置可备份与恢复。
+- **列表管理**：长按拖动排序，可显示或隐藏；隐藏的滤镜预设照常可用。
+- **跨模式同步**：拍照、人像与哈苏超清共用同一套顺序与显示状态。
+- **特殊效果**：霓虹套 CineStill 800T 的光晕与颗粒，和光套 Portra 的高光溢光。
+- **导入与备份**：批量导入 Rec.709 `.cube` LUT，配置可备份恢复。
+- **快速滤镜面板**：大师卡片或调色盘入口上滑、长按打开原厂滤镜条，滑动时只绘制中心及左右各 4 项。
 
 ### 光学模拟
 
-- **物理柔光**：三挡柔光分别替换为实体滤镜的光学模拟：弱挡 HDF、中挡 1/4 黑柔、强挡白柔。散射在场景光上计算，高光溢散与实体滤镜一致。
+- **物理柔光**：三挡柔光分别换成实体滤镜的光学模拟——弱挡 HDF、中挡 1/4 黑柔、强挡白柔。散射按场景光计算，高光溢散与实体滤镜一致。
 - **和光物理胶片**：按柯达实测锐度模拟 Portra 400 的乳剂散射、光晕与边缘效应，作用于成片。
 
 ### 模式
 
-- **理光 GR**：移植自 realme GT8，含影调、焦距条、快照对焦与相机、相册水印；补齐 GR 快门声与长曝光提示音；GR 水印可单独关闭；模式位置可长按拖动调整。
-- **POP 复古**：移植自 Reno16，可在 SDR（偏亮的 CCD 风味）与 Ultra HDR 之间切换；光线充足时可输出中像素，画面有人脸时保持原尺寸。
+- **理光 GR**：移植自 realme GT8，含影调、焦距条、快照对焦、相机与相册水印，补齐 GR 快门声和长曝光提示音，水印可单独关闭，模式位置可拖动。
+- **POP 复古**：移植自 Reno16，SDR 与 Ultra HDR 可切换；光线充足时可输出中像素，有人脸时保持原尺寸。
 - **X10 系列**：调色盘，以及清透、琥珀两款滤镜。
 - **哈苏超清**：补齐滤镜、调色盘与柔光入口。
-- **XPAN**：照片可存为实况，播放负片显影动画并带原厂 XPAN 快门声；取景框的大小遮罩与显影动画分别可关；XPAN 水印只在 XPAN 模式出现。
+- **XPAN**：照片可存为实况，播放负片显影动画并带原厂快门声；取景框遮罩与显影动画可分别关闭；XPAN 水印只在 XPAN 模式出现。
 - **移轴模式**。
 
 ### 视频
@@ -91,63 +92,66 @@ Muse 由 KernelSU 模块和 LSPosed 设置应用组成：模块通过绑定挂�
 
 ### 相册
 
-- **重新编辑**：相机拍摄的滤镜与调色盘可在相册中重新编辑，Muse 滤镜与大师滤镜进入相册滤镜列表；理光模式照片可编辑 GR 水印。
-- **水印**：哈苏、LUMO、理光水印对所有照片开放，截图等无机型信息的照片自动补上本机名称；Muse 滤镜与导入滤镜在水印上显示自己的名称。
-- **批量编辑水印**：多选照片后从"更多"进入，在第一张选定样式，其余照片在后台自动套用，可离开相册，通知实时显示进度；选"无"即批量去除水印。
-- **地址跳转**：照片详情中点击地址，在地图应用中打开拍摄位置。
+- **重新编辑**：相机拍的滤镜与调色盘可在相册中重新编辑，Muse 滤镜与大师滤镜进入相册滤镜列表；GR 照片可编辑 GR 水印。
+- **水印**：哈苏、LUMO、理光水印对所有照片开放，截图等无机型信息的照片自动补上本机名称；Muse 滤镜与导入滤镜显示自己的名称。
+- **批量编辑水印**：多选后从「更多」进入，第一张选样式，其余后台套用，可离开相册，通知显示进度；选「无」即批量去除。
+- **地址跳转**：照片详情里点地址，在地图应用打开拍摄位置。
 
 ### 拍摄习惯
 
-- **快门声**：静音、振动模式下照常播放，可分别开关，音量可单独设置。
+- **快门声**：静音、振动模式下照常播放，可分别开关，音量单独设置。
 - **按模式记忆**：闪光灯与实况开关由每个模式各自记住。
-- **快启键**：直接进入指定模式，包括大师、GR 等原厂快启列表没有的模式，不跟随上次使用的模式。
-- **机型伪装**：水印与成片 EXIF 中的机型可替换为自定义预设。
+- **快启键**：直接进入指定模式，包括大师、GR 这些原厂快启列表里没有的模式。
+- **机型伪装**：水印与成片 EXIF 里的机型可换成自定义预设。
 
 ### 设置应用
 
-- **注入状态**：逐项检查 LSPosed、KSU 挂载、相机与相册注入、符号匹配，全部正常时卡片变绿。
-- **即时生效**：任何设置改动后都会在后台结束相机进程，回到相机即为新设置。
-- **维护**：一键重启相机、相册；持续记录系统日志，复现问题后连同相机日志一并导出。
+- **注入状态**：逐项检查 LSPosed、挂载、相机与相册注入、符号匹配；全部正常时卡片变绿。
+- **即时生效**：改完设置后台结束相机进程，回相机就是新设置。
+- **维护**：一键重启相机、相册；持续记录系统日志，复现问题后连同相机日志一起导出。
+- **成片转储**：可单独开启 RAW、ccmVec（原厂 WB/CCM 之后、gamma 之前的浮点 RGB）和 HDRTransform 输入输出转储，默认关闭，重启相机进程后生效。
 
-## 安装
+## 和上游的关系
 
-需要已 root（KernelSU）并安装 LSPosed。
+两台机器不是同一配置世代：决策配置格式不同，原生管线类族不同（本机只有 `24019`，没有 `25021`），模式库里没有 GR / POP，大师色彩与 XPAN 的开关是 0。所以不能整包照搬上游。
 
-1. 构建得到 `OmniCam-Muse-<版本>-KSU.zip`（见"构建"）。
-2. 在 KernelSU 管理器中刷入模块（ID `ricoh_pop_x9u`）并重启。模块自带设置应用（包名 `local.jiege.camera`），刷入时一并安装。
-3. 在 LSPosed 中启用 OmniCam Muse，作用域勾选**系统框架、相机、相册**。
-4. 强制停止相机后重新打开。
+这个仓库的做法是：
 
-设置入口在桌面的 OmniCam Muse 应用，或 LSPosed 中的模块页。需要还原时，在 KernelSU 管理器中停用模块并重启，所有挂载随之撤销。
+- **代码**跟上游走。上游的功能改动、修 bug 的思路、钩子写法都直接拿过来，只为本机改了必要的地方。
+- **数据层**在构建时从上游对应 commit 拉取，只取数据（LUT、basictone、水印素材），不取 `module/system` 里的库，也不取任何 ODM 配置。本地仓库不放这些数据，所以克隆下来只有几百 KB。
+- **配置**（`module/profiles/RMX5010`、`assets/profile`）是本机自己的，上游那份不能用。
+
+同步上游的步骤写在 [docs/DEV_NOTES.md](docs/DEV_NOTES.md)。
 
 ## 构建
 
-环境：Windows、JDK 17、Android SDK 37、NDK 29.0.14206865、CMake 3.22.1、Python（含 numpy、pycryptodome）、Git for Windows。在 `local.properties` 中写入 `sdk.dir=…`（已忽略）。
+CI：推送到 `main` 或 `test/full` 会触发 `.github/workflows/build-full.yml`，依次拉上游数据层、组装挂载层、编译、签名、打包 KSU 模块，产物传到 `full` 这个 release。数据层对应的上游 commit 在 workflow 的 `UPSTREAM_SHA` 里，重新同步上游时改这一个值。
+
+本地：Windows、JDK 17 以上、Android SDK 37、NDK 29.0.14206865、CMake 3.22.1、Python（含 numpy、pycryptodome）、Git for Windows。`local.properties` 里写 `sdk.dir`（已忽略）。
 
 ```powershell
 $env:OMNICAM_PYTHON = 'python'
 .\build.ps1
 ```
 
-`build.ps1` 依次执行色彩目录检查、离线测试、脚本语法检查与 `assembleRelease`。
+`build.ps1` 依次跑色彩目录检查、离线测试、脚本语法检查和 `assembleRelease`。仓库里没有 `port.keystore`（已忽略）时只产出未签名 APK；放好密钥并设置 `OMNICAM_STORE_PASSWORD`、`OMNICAM_KEY_ALIAS`、`OMNICAM_KEY_PASSWORD` 后才会签名并打包模块 zip。不同证书签名的 APK 不能直接覆盖安装。
 
-- **签名**：根目录放有 `port.keystore`（已忽略），或设置了 `OMNICAM_KEYSTORE` 时，读取 `OMNICAM_STORE_PASSWORD`、`OMNICAM_KEY_ALIAS`、`OMNICAM_KEY_PASSWORD` 签名，并打包出 `OmniCam-Muse-<版本>-KSU.zip`；否则只产出未签名 APK。
-- 证书与密码不入库。不同证书签名的 APK 不能直接覆盖安装。
+## 已知问题
 
-## 适配其他机型
-
-欢迎参考本项目为其他机型适配。但很多功能改动的是底层配置：`/odm` 下的相机配置、调色与 LUT 资源、HAL 决策节点和原生库，它们与机型和相机版本绑定，不能照搬。适配前请先阅读 `docs/MODULE.md` 中各功能的原理与涉及文件，再对照目标机型自己的配置逐项核对。
+- **POP 快门偶发不出片**。496 定位到相机单元 SDK 里的 `ModeInterface.isAllowedToTakePicture` 返回 1，起因是 SDK 手里的预览帧数还是模式打开时的旧值。496 加了 `PopSdkGate`，在按压窗口内把 app 已接受的帧数写回 SDK，并把判定原因打进日志，等实机日志确认。
+- **哈苏水印相机侧 NPE**。`BaseWatermarkManager.getWatermarkJson-aiMaster` 读 `/photo_watermark/<style>`，这台机器的 ODM 里整个目录不存在，返回 null 之后 `isSystemRegionOverScope(null)` 抛 NPE。尚未处理。
+- **正片胶片**是否恢复正常，还等一次实机确认。
 
 ## 目录
 
 | 路径 | 内容 |
 |---|---|
-| `app/` | 设置应用与钩子：Java（`hook/*`）、Kotlin（`ui/*`）、C++（`cpp/*`，大师色彩引擎 `master_*`、柔光 `soft_light*`） |
-| `module/` | KSU 模块：脚本、`payload/` 配置与资源、`system/odm/lib64/` 库 |
-| `tools/` | 资源生成与离线测试：`mastercolor/`（大师色彩）、`softlight/`（柔光权重）、`symbols/`（混淆符号特征）、`offline_tests/` |
-| `tools/refs.py` | 仓库外参考资料的位置（可用 `MUSE_REFS` 修改根目录） |
-| `docs/` | `MODULE.md`：各功能的原理与涉及文件；`DEV_NOTES.md`：设备操作与排查 |
+| `app/` | 设置应用与钩子：Java（`hook/*`）、Kotlin（`ui/*`）、C++（`cpp/*`，大师色彩引擎 `master_*`、柔光 `soft_light*`、成片转储 `*_dump*`） |
+| `module/` | KSU 模块：脚本、`profiles/` 配置、`lut_extra/` 补的 LUT；`payload/` 由 CI 拉取，不入库 |
+| `GT7Pro-适配/` | 本机适配的评估报告、构建说明、符号回放工具 |
+| `tools/` | 资源生成与离线测试：`mastercolor/`、`softlight/`、`symbols/`、`mslut.py`、`offline_tests/` |
+| `docs/` | `MODULE.md` 各功能原理与涉及文件，`DEV_NOTES.md` 设备操作与排查，`RELEASE-*.md` 逐版记录 |
 
-## 许可证与致谢
+## 许可证
 
-本项目以 [GPL-3.0](LICENSE) 发布。Lumix、胶片、Canon、Darktable 等色彩引擎基于 [PhotonCamera](https://github.com/bjzhou/PhotonCamera)，胶片模拟来自 [Spektrafilm](https://github.com/andreavolpato/spektrafilm)。第三方来源及其许可见 [NOTICE.md](NOTICE.md)。
+以 [GPL-3.0](LICENSE) 发布。Lumix、胶片、Canon、Darktable 等色彩引擎基于 [PhotonCamera](https://github.com/bjzhou/PhotonCamera)，胶片模拟来自 [Spektrafilm](https://github.com/andreavolpato/spektrafilm)。第三方来源与许可见 [NOTICE.md](NOTICE.md)。

@@ -51,6 +51,8 @@ public final class ModeGates {
     private static final String TAG = "ModeGates";
     private static final String CONFIG = "com.oplus.camera.configure.CameraConfig";
     private static final String GETTER = "getConfigBooleanValue";
+    /** Same question, different door: (key, default, cache). */
+    private static final String CACHED = "d";
     private static final String OFF = "/data/adb/omnicam_gates_off";
 
     /** Flags answered true. Keys that are absent from the config can only be answered here. */
@@ -62,6 +64,9 @@ public final class ModeGates {
         // device's config at all, so the seeding code skips the mode and only a move config puts
         // it in the table. See ModePlacement for where it ends up.
         "com.oplus.feature.professional.mode.support",
+        // 大师模式 in the bar rather than the panel. The key is read while the headline rows are
+        // written; this device ships it as 0, which is why the reference layout never happened here.
+        "com.oplus.support.professional.mode.in.headline",
         "com.oplus.camera.support.custom.hasselblad.watermark",
         "com.oplus.camera.support.custom.hasselblad.watermark.sellmode.default.open",
     };
@@ -131,8 +136,9 @@ public final class ModeGates {
         if (installed) return;
         installed = true;
         Method getter;
+        Class<?> config;
         try {
-            Class<?> config = Class.forName(CONFIG, false, classLoader);
+            config = Class.forName(CONFIG, false, classLoader);
             getter = find(config);
         } catch (Throwable error) {
             Log.e(TAG, "flag getter unavailable", error);
@@ -157,6 +163,47 @@ public final class ModeGates {
             Log.i(TAG, "flag getter hooked, " + FORCED.length + " flags answered true");
         } catch (Throwable error) {
             Log.e(TAG, "flag hook failed", error);
+        }
+        hookCachedGetter(config);
+    }
+
+    /**
+     * {@code CameraConfig.d(String, boolean, boolean)} — the same question through the other door.
+     *
+     * <p>The seeding code asks some of its flags with this one as well as with
+     * {@code getConfigBooleanValue}: both appear in {@code dq.e.i} and {@code dq.e.j}. Answering
+     * only the first leaves the rows that go through {@code d} reading the shipped value. The two
+     * booleans are a default and a cache flag, so only the key is looked at.
+     */
+    private static void hookCachedGetter(Class<?> config) {
+        Method cached = null;
+        for (Method method : config.getDeclaredMethods()) {
+            if (!CACHED.equals(method.getName())) continue;
+            Class<?>[] types = method.getParameterTypes();
+            if (types.length == 3 && types[0] == String.class && types[1] == boolean.class
+                && types[2] == boolean.class && method.getReturnType() == boolean.class) {
+                cached = method;
+                break;
+            }
+        }
+        if (cached == null) {
+            Log.i(TAG, CACHED + " not found, only the plain getter is answered");
+            return;
+        }
+        try {
+            XposedBridge.hookMethod(cached, new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    Object key = param.args[0];
+                    if (!(key instanceof String)) return;
+                    String name = (String) key;
+                    if (!forced(name)) return;
+                    param.setResult(Boolean.TRUE);
+                    if (SEEN.add(name)) log(name + " answered true via " + CACHED);
+                }
+            });
+            Log.i(TAG, CACHED + " hooked too");
+        } catch (Throwable error) {
+            Log.e(TAG, CACHED + " hook failed", error);
         }
     }
 

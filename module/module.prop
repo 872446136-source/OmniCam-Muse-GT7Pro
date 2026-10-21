@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse 4.8 GT7Pro
-versionCode=472
+version=Muse 4.9 GT7Pro
+versionCode=473
 author=local-port
-description=单版本，无 Lite。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置：配置改动走 profile（相机进程自己从 APK 写入 /data/user/0/com.oplus.camera/files/jiege/profile）+ 原生路径重定向，只影响相机进程。471 的开关修复确认生效：retroCamera 和 gr 都真正回答成 true，POP 模式入口出来了，相机哈苏水印也回来了。但 GR / POP 切过去仍然卡死，这一版加了只读探针（ModeProbe），把切换时的三步全记进日志——模式名转 id、按 id 查 mode_info、以及播种完的整张表——下次一份日志就能分清是行没写进去、还是 id 对不上、还是行在但相机不肯切。大师模式（professional）本机配置里连 support 键都没有，而且两条 move 配置互相打架，最后被挪回“更多”面板，所以一直看不到入口；472 回答 professional.mode.support 并让面板那条 move 不再包含它，大师模式回到模式栏。新增逃生口：touch /data/adb/omnicam_probe_off 关探针，touch /data/adb/omnicam_placement_off 关大师模式搬移。原有：touch /data/adb/omnicam_gates_off 关开关层；touch /data/adb/omnicam_native_off 关原生层；touch /data/adb/omnicam_off 全关。均需重启。
+description=单版本，无 Lite。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置：配置改动走 profile（相机进程自己从 APK 写入 /data/user/0/com.oplus.camera/files/jiege/profile）+ 原生路径重定向，只影响相机进程。472 的探针一个都没装上——相机里这些混淆类在默认包（dex 里写的是 Ldq/e;，不是 com/oplus/camera/dq/e;），我按带包名的写法去取，三次 ClassNotFoundException，诊断页因此报“相机注入异常”。473 两个写法都试，并且把整表 dump 改成定时触发，不依赖任何钩子成功。另外把 OCAM_ModeSwitcher / OCAM_DataBaseOperator / OCAM_CameraControlUI 加进日志镜像：导出只抓最近两万行，相机卡死后就不再输出，471 和 472 的日志里一行 OCAM 都没有，所以切换卡在哪一直看不到。开关层也多回答了一个入口：CameraConfig.d(key,默认值,缓存) —— 播种代码有一部分开关是走这个门的，只回答 getConfigBooleanValue 会漏。大师模式再加回答 support.professional.mode.in.headline，让它进模式栏而不是面板。逃生口：touch /data/adb/omnicam_probe_off 关探针，touch /data/adb/omnicam_placement_off 关大师模式搬移，touch /data/adb/omnicam_gates_off 关开关层，touch /data/adb/omnicam_native_off 关原生层，touch /data/adb/omnicam_off 全关。均需重启。

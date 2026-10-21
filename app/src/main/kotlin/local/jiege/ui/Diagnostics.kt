@@ -34,11 +34,31 @@ internal object GalleryReport {
     fun fetch(context: Context): Bundle? = fetchState(context, DiagnosticsContract.GALLERY_AUTHORITY)
 }
 
-private fun fetchState(context: Context, authority: String): Bundle? = try {
-    context.contentResolver.call(Uri.parse("content://$authority"), DiagnosticsContract.METHOD_STATE, null, null)
-        ?.takeIf { it.containsKey(DiagnosticsContract.KEY_PID) }
-} catch (_: Exception) {
-    null
+/**
+ * The state the hooked process answers with, or null.
+ *
+ * <p>The call also *starts* the process it asks, so it blocks until that process is up. When the
+ * process crash-loops (a broken hook, say) it never comes up and the call never returns, which used
+ * to leave the page on "正在检查" forever and made the log export hang. So the call runs on its own
+ * thread and is abandoned after [STATE_TIMEOUT_MS]: the page then says the app is not reachable,
+ * which is the honest answer.
+ */
+private const val STATE_TIMEOUT_MS = 6000L
+
+private fun fetchState(context: Context, authority: String): Bundle? {
+    val task = java.util.concurrent.FutureTask(java.util.concurrent.Callable {
+        context.contentResolver.call(Uri.parse("content://$authority"), DiagnosticsContract.METHOD_STATE, null, null)
+            ?.takeIf { it.containsKey(DiagnosticsContract.KEY_PID) }
+    })
+    val thread = Thread(task, "diagnostics-$authority")
+    thread.isDaemon = true
+    thread.start()
+    return try {
+        task.get(STATE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+    } catch (_: Exception) {
+        task.cancel(true)
+        null
+    }
 }
 
 /** One line of the injection check: passed, or the problem and what to do. */

@@ -2172,16 +2172,6 @@
    "name": "getCameraMode",
    "params": [],
    "ret": "java.lang.String"
-  },
-  "CameraConfig.flag": {
-   "kind": "method",
-   "in": "com.oplus.camera.configure.CameraConfig",
-   "name": "getConfigBooleanValue",
-   "params": [
-    "java.lang.String"
-   ],
-   "ret": "boolean",
-   "static": true
   }
  },
  "gallery": {

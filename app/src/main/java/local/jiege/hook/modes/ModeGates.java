@@ -1,76 +1,138 @@
 package local.jiege.hook.modes;
 
+import android.app.Application;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
+import de.robv.android.xposed.XposedHelpers;
+import java.io.File;
 import java.lang.reflect.Method;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import local.jiege.hook.common.Log;
-import local.jiege.hook.common.Symbols;
 
 /**
- * The support flags the camera's mode database is seeded with, answered in-process.
+ * Support flags the camera reads out of {@code oplus_camera_config}, answered in-process.
  *
- * <p>The camera does not build its mode bar from the config on every start: it writes the modes into
- * {@code databases/mode_data.db} once (ModeDataSQLiteOpenHelper) and only queries that table
- * afterwards. Each row is written behind a {@code CameraConfig} flag — {@code gr} needs
- * {@code com.oplus.gr.mode.support}, {@code retroCamera} needs
- * {@code com.oplus.feature.retro.camera.support}, {@code xpan} needs
- * {@code com.oplus.feature.xpan.mode.support}.
+ * <p>Two things need them and neither can be reached from the profile:
  *
- * <p>None of those three exist in this device's {@code oplus_camera_config} (the xpan one exists and
- * is 0). {@code CameraConfig.getConfigBooleanValue} reads
- * {@code CameraUnitUtils.getVendorTagConfig(key)} — the config file itself — so an absent key can
- * never answer true, and the override SharedPreferences this module writes are not consulted on that
- * path either. That is why adding the modes to {@code camera_unit_config} made
- * {@code hasMode()} pass while the camera still showed nothing: the row was never written.
+ * <ul>
+ *   <li>The mode bar is seeded into {@code databases/mode_data.db} once, and each row is written
+ *       behind a flag — {@code gr} needs {@code com.oplus.gr.mode.support}, {@code retroCamera}
+ *       needs {@code com.oplus.feature.retro.camera.support}. Neither key exists in this device's
+ *       config, and an absent key answers false forever, so re-seeding the database writes the
+ *       same missing rows.
+ *   <li>The camera's own 哈苏 watermark is behind
+ *       {@code com.oplus.camera.support.custom.hasselblad.watermark}, which this device ships as 0.
+ * </ul>
  *
- * <p>So the answer is given here instead, for this process only. No file is replaced; with the module
- * switched off the flags read exactly as the firmware ships them.
+ * <p>Both are read through {@code CameraConfig.getConfigBooleanValue}, which goes to
+ * {@code CameraUnitUtils.getVendorTagConfig(key)} — the config file itself. The answer is given
+ * here, for this process only; nothing is written to disk and with the module off the flags read
+ * exactly as the firmware ships them.
+ *
+ * <p>Timing is the whole point of this class. The flags are answered from
+ * {@code Application.onCreate}, never from {@code handleLoadPackage}: resolving or calling into
+ * CameraConfig while the process is still being bound (before the app exists) loads that class and
+ * runs its config engine too early, and the camera then comes up to a black screen. For the same
+ * reason the class is loaded with {@code initialize = false} and the original method is never
+ * called by this class — the first call is the camera's own.
+ *
+ * <p>Escape hatch: {@code touch /data/adb/omnicam_gates_off} turns this part off without touching
+ * anything else.
  */
 public final class ModeGates {
     private static final String TAG = "ModeGates";
+    private static final String CONFIG = "com.oplus.camera.configure.CameraConfig";
+    private static final String GETTER = "getConfigBooleanValue";
+    private static final String OFF = "/data/adb/omnicam_gates_off";
 
-    /** Flags that gate a mode row; forced on so the row exists after the database is re-seeded. */
+    /** Flags answered true. Keys that are absent from the config can only be answered here. */
     private static final String[] FORCED = {
         "com.oplus.gr.mode.support",
         "com.oplus.feature.retro.camera.support",
         "com.oplus.feature.xpan.mode.support",
+        "com.oplus.camera.support.custom.hasselblad.watermark",
+        "com.oplus.camera.support.custom.hasselblad.watermark.sellmode.default.open",
     };
+
+    /** Keys already logged, so one report carries each answer once. */
+    private static final Set<String> SEEN = ConcurrentHashMap.newKeySet();
+    private static boolean installed;
 
     private ModeGates() {}
 
-    public static void installCamera(ClassLoader classLoader) {
-        Method getter = null;
-        try {
-            getter = Symbols.get().method("CameraConfig.flag");
-        } catch (Throwable error) {
-            Log.e(TAG, "mode support flags unavailable", error);
+    /**
+     * Arms the flags for the camera's main process: nothing is resolved here, only the two framework
+     * hooks that fire once the app is up. Both are armed because an app that overrides
+     * {@code onCreate} without calling super would never reach the first one.
+     */
+    public static void installCamera(final ClassLoader classLoader) {
+        if (new File(OFF).exists()) {
+            Log.i(TAG, "gates off (" + OFF + "), flags left as shipped");
             return;
         }
-        // Logged before the hook goes in, so a report says whether the flag was the blocker at all.
-        for (String key : FORCED) {
-            boolean before = false;
-            try {
-                before = (Boolean) getter.invoke(null, key);
-            } catch (Throwable error) {
-                Log.e(TAG, key + " unreadable", error);
+        XC_MethodHook arm = new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                install(classLoader);
             }
-            Log.i(TAG, key + " was " + before + ", answering true from now on");
+        };
+        try {
+            XposedHelpers.findAndHookMethod(Application.class, "onCreate", arm);
+        } catch (Throwable error) {
+            Log.e(TAG, "application onCreate hook unavailable", error);
+        }
+        try {
+            XposedHelpers.findAndHookMethod(android.app.Instrumentation.class, "callApplicationOnCreate",
+                Application.class, arm);
+        } catch (Throwable error) {
+            Log.e(TAG, "callApplicationOnCreate hook unavailable", error);
+        }
+    }
+
+    /** Runs once, from Application.onCreate: the camera's own config engine is up by then. */
+    private static synchronized void install(ClassLoader classLoader) {
+        if (installed) return;
+        installed = true;
+        Method getter;
+        try {
+            Class<?> config = Class.forName(CONFIG, false, classLoader);
+            getter = find(config);
+        } catch (Throwable error) {
+            Log.e(TAG, "flag getter unavailable", error);
+            return;
         }
         try {
             XposedBridge.hookMethod(getter, new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
                     Object key = param.args[0];
                     if (!(key instanceof String)) return;
-                    for (String forced : FORCED) {
-                        if (forced.equals(key)) {
-                            param.setResult(Boolean.TRUE);
-                            return;
-                        }
+                    if (!forced((String) key)) return;
+                    if (SEEN.add((String) key)) {
+                        Log.i(TAG, key + " answered true (camera passed default " + param.args[1] + ")");
                     }
+                    param.setResult(Boolean.TRUE);
                 }
             });
+            Log.i(TAG, "flag getter hooked, " + FORCED.length + " flags answered true");
         } catch (Throwable error) {
-            Log.e(TAG, "mode support flag hook failed", error);
+            Log.e(TAG, "flag hook failed", error);
         }
+    }
+
+    /** getConfigBooleanValue(String)Z, static or not — this build's shape is not assumed. */
+    private static Method find(Class<?> config) throws NoSuchMethodException {
+        for (Method method : config.getDeclaredMethods()) {
+            if (!GETTER.equals(method.getName())) continue;
+            Class<?>[] types = method.getParameterTypes();
+            if (types.length == 1 && types[0] == String.class && method.getReturnType() == boolean.class) {
+                return method;
+            }
+        }
+        throw new NoSuchMethodException(config.getName() + "." + GETTER);
+    }
+
+    private static boolean forced(String key) {
+        for (String flag : FORCED) if (flag.equals(key)) return true;
+        return false;
     }
 }

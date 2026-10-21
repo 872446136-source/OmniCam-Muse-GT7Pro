@@ -100,8 +100,9 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
 
         // The mode bar is read from a database the camera seeds once, not from the config, so a mode
         // that only became allowed after that seed never shows up. The rows are written behind
-        // CameraConfig flags this device's config does not carry, so those are answered first, and
-        // then the database is dropped in the camera's own main process once per module version.
+        // CameraConfig flags this device's config does not carry: ModeGates answers them, but only
+        // from Application.onCreate (arming it here would load that class before the app exists and
+        // the camera comes up black), so the database is dropped now and re-seeded once the app is up.
         if (CAMERA.equals(param.processName)) {
             ModeGates.installCamera(classLoader);
             ModeDataReset.ensure(param.appInfo != null && param.appInfo.dataDir != null

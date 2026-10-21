@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse 4.5 GT7Pro
-versionCode=460
+version=Muse 4.6 GT7Pro
+versionCode=470
 author=local-port
-description=单版本，无 Lite。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置：配置改动走 profile（相机进程自己从 APK 写入 /data/user/0/com.oplus.camera/files/jiege/profile）+ 原生路径重定向，只影响相机进程。本版修正：相机模式栏是 mode_data.db 里播种出来的，而每一行都要过 com.oplus.gr.mode.support / com.oplus.feature.retro.camera.support 开关——本机 oplus_camera_config 根本没有这两个键，上一版删库重播种只会写回 false。现在这两个开关在相机进程内直接回答 true（原始值写进日志），再删一次库重新播种，理光 GR / POP 复古 才会真正出现在相机里。相册水印面板同样被 feature_is_support_hassel_device / feature_is_support_watermark_master 这类开关挡住，一并回答 true，哈苏 / LUMO / 理光GR 系列才列得出来。关原生层：touch /data/adb/omnicam_native_off；全关：touch /data/adb/omnicam_off。均需重启。
+description=单版本，无 Lite。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。不替换任何系统库或 ODM 配置：配置改动走 profile（相机进程自己从 APK 写入 /data/user/0/com.oplus.camera/files/jiege/profile）+ 原生路径重定向，只影响相机进程。460 的相机黑屏是这一版修的重点：那一版在进程还没起来时就去读 CameraConfig 的开关，把相机的配置引擎提前叫醒，于是相机起来是黑屏。现在开关一律等 Application.onCreate 之后才回答，绝不主动调用原方法；再出问题可以 touch /data/adb/omnicam_gates_off 单独关掉这一部分（相机照常能用，只是 GR / POP / 哈苏水印没有）。相册那边 460 加的 feature 开关一并撤掉，回到 450 的行为。另外诊断页查相机状态加了 6 秒超时，相机进程崩溃时不会再一直卡在“正在检查”，导出日志也不会再卡死。关原生层：touch /data/adb/omnicam_native_off；全关：touch /data/adb/omnicam_off。均需重启。

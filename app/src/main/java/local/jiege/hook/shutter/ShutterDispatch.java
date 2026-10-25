@@ -5,7 +5,9 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import java.io.File;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import local.jiege.hook.common.Log;
 import local.jiege.hook.common.Symbols;
 import local.jiege.hook.modes.ModeGates;
@@ -58,7 +60,31 @@ public final class ShutterDispatch {
     private static final String DISPATCH = "d";
     private static final String MARKER = "ShutterButton";
 
+    /**
+     * 479's report: POP opens, the mode switch works, preview runs — and a press still does
+     * nothing, in POP and in GR alike. Two facts from that report narrow it to one place:
+     *
+     * <pre>
+     *   POP  16:18:03.995  CommonCapMode onCameraShutterButtonClick   ← the click handler ran
+     *   GR   16:17:57.680  shutter handled by hm.i                    ← only the button-down event
+     * </pre>
+     *
+     * <p>Both modes therefore get as far as the mode's own shutter code, and neither produces a
+     * single {@code CaptureProcessor} line afterwards. The one call that turns a press into a
+     * request is {@code BaseMode.capture(cb.t)} — the method that logs
+     * {@code capture, isSpruceStartCapture but isCapturing} and
+     * {@code capture, checkStateBeforeCapture true} and ends in the capture processor. Nothing in
+     * any report says whether it is entered or what it answers, so it is traced here: one line on
+     * entry, one with the answer.
+     *
+     * <p>That answer is what separates the two remaining possibilities. Entered and false means the
+     * mode refused the request itself; not entered at all means the click handler returned before
+     * it, which is what 480's feature table fixes.
+     */
     private static boolean installed;
+
+    /** Cached shape-found button-down flag of the shutter message. */
+    private static volatile Field downFlag;
 
     private ShutterDispatch() {}
 
@@ -140,22 +166,81 @@ public final class ShutterDispatch {
                 Log.e(TAG, "cannot watch the shutter message", error);
             }
         }
+        traceCapture(symbols);
         if (!symbols.has("ShutterHandler.all")) {
             Log.i(TAG, "shutter handlers not found, only the bus is traced");
             return;
         }
+        Method gr = symbols.has("ShutterHandler.gr") ? symbols.method("ShutterHandler.gr") : null;
         try {
             for (Method handler : symbols.<Method>all("ShutterHandler.all")) {
                 final String owner = handler.getDeclaringClass().getName();
+                final boolean isGr = gr != null && gr.equals(handler);
                 XposedBridge.hookMethod(handler, new XC_MethodHook() {
                     @Override protected void beforeHookedMethod(MethodHookParam param) {
-                        Log.i(TAG, "shutter handled by " + owner);
+                        Object message = param.args.length > 0 ? param.args[0] : null;
+                        Log.i(TAG, "shutter handled by " + owner + ", down: " + down(message));
                     }
                 });
-                Log.i(TAG, "shutter handler traced: " + owner + "." + handler.getName());
+                Log.i(TAG, "shutter handler traced: " + owner + "." + handler.getName()
+                    + (isGr ? " (GR)" : ""));
             }
         } catch (Throwable error) {
             Log.e(TAG, "cannot watch the shutter handlers", error);
+        }
+    }
+
+    /**
+     * Watches the call that turns a press into a request: {@code BaseMode.capture(cb.t)}, the one
+     * that ends in the capture processor. Entry and answer, one line each, because the pair is what
+     * separates "the mode refused it" from "the handler never got this far".
+     */
+    private static void traceCapture(Symbols symbols) {
+        if (!symbols.has("BaseMode.capture")) {
+            Log.i(TAG, "capture request symbol missing, a press cannot be followed past the mode");
+            return;
+        }
+        try {
+            Method capture = symbols.method("BaseMode.capture");
+            XposedBridge.hookMethod(capture, new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    Log.i(TAG, "capture request entered on " + param.thisObject.getClass().getName());
+                }
+
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    Log.i(TAG, "capture request returned " + param.getResult());
+                }
+            });
+            Log.i(TAG, "capture request traced: " + capture);
+        } catch (Throwable error) {
+            Log.e(TAG, "cannot trace the capture request", error);
+        }
+    }
+
+    /**
+     * The message's button-down flag. It is the only non-final boolean on the class — the other two
+     * are set once in the constructor — so the field is found by shape, not by name.
+     */
+    private static boolean down(Object message) {
+        if (message == null) return false;
+        Field flag = downFlag;
+        if (flag == null) {
+            Field found = null;
+            for (Field field : message.getClass().getDeclaredFields()) {
+                if (field.getType() != boolean.class) continue;
+                if (Modifier.isStatic(field.getModifiers())) continue;
+                if (Modifier.isFinal(field.getModifiers())) continue;
+                if (found != null) return false;
+                found = field;
+            }
+            if (found == null) return false;
+            found.setAccessible(true);
+            downFlag = flag = found;
+        }
+        try {
+            return flag.getBoolean(message);
+        } catch (Throwable error) {
+            return false;
         }
     }
 }

@@ -15,8 +15,10 @@ import org.json.JSONObject;
  *
  * <p>The profile is this device's {@code camera_unit_config} with the modes its firmware ships but
  * never lists added (tilt-shift, XPAN, GR) plus the two the B6 port proved the HAL accepts (movie,
- * high pixel). {@code profile_config.cpp} serves it to the camera process by redirecting reads of
- * {@code /odm/etc/camera/config/<name>} — nothing is mounted and {@code /odm} is never written.
+ * high pixel), and this device's {@code camera_unit_feature_config.protobuf} with the feature tables
+ * the firmware has no entry for added (480: GR, POP and XPAN). {@code profile_config.cpp} serves
+ * both to the camera process by redirecting reads of {@code /odm/etc/camera/config/<name>} — nothing
+ * is mounted and {@code /odm} is never written.
  *
  * <p><b>Where the content comes from (476).</b> 475 shipped a whole {@code camera_unit_config} built
  * off-device from one system build's copy. That is fine until the firmware moves: after an OTA the
@@ -43,25 +45,47 @@ import org.json.JSONObject;
  * first camera start after an update. Writing to a temporary name and renaming keeps a camera that
  * starts while the previous copy is being written from reading a half file.
  *
- * <p>Escape hatch: {@code touch /data/adb/omnicam_liveconfig_off} pins the staged file to the copy
- * inside the APK.
+ * <p>Escape hatches: {@code touch /data/adb/omnicam_liveconfig_off} pins the staged
+ * {@code camera_unit_config} to the copy inside the APK, and
+ * {@code touch /data/adb/omnicam_featcfg_off} withdraws the staged feature table so the stock one is
+ * served again.
  */
 public final class ConfigProfile {
     private static final String TAG = "ConfigProfile";
     private static final String ASSET_ROOT = "assets/profile/";
 
     /**
-     * The files a profile may carry. Only {@code camera_unit_config} is shipped: it is plain JSON, so
-     * a profile can be built and reviewed off-device. {@code oplus_camera_config} is encrypted with a
-     * key derived from the device's own {@code libOplusSecurity.so} and wrapped in a 4-byte envelope
-     * whose tail does not survive a change in payload length, so the switch board is answered in
-     * {@code ModeGates} instead of being shipped as a file. The name is still listed because
-     * {@code profile_config.cpp} serves whatever is staged, and a future build may want it.
+     * The files a profile may carry. Two are shipped.
+     *
+     * <ul>
+     *   <li>{@code camera_unit_config} — plain JSON, merged onto the device's own copy at run time
+     *       (see {@link #merge}).</li>
+     *   <li>{@code camera_unit_feature_config.protobuf} — which features each camera unit mode
+     *       assembles. Served exactly as shipped, because the format is a protobuf whose every
+     *       number is an index into its own string table: merging it would mean re-indexing, and
+     *       the file is small enough that carrying the whole table costs nothing. 480's entry
+     *       explains why it is needed at all.</li>
+     * </ul>
+     *
+     * <p>{@code oplus_camera_config} is encrypted with a key derived from the device's own
+     * {@code libOplusSecurity.so} and wrapped in a 4-byte envelope whose tail does not survive a
+     * change in payload length, so the switch board is answered in {@code ModeGates} instead of
+     * being shipped as a file. The name is still listed because {@code profile_config.cpp} serves
+     * whatever is staged, and a future build may want it.
      */
     private static final String[] NAMES = {
         "camera_unit_config",
+        "camera_unit_feature_config.protobuf",
         "oplus_camera_config",
     };
+
+    /**
+     * The one shipped file that is not merged, only served. See {@link #NAMES}.
+     */
+    private static final String FEATURES = "camera_unit_feature_config.protobuf";
+
+    /** Pins the staged feature table to the stock one, for a build where it turns out to hurt. */
+    private static final String FEATURES_OFF = "/data/adb/omnicam_featcfg_off";
 
     /** The one file this class knows how to merge; anything else is served as shipped. */
     private static final String UNIT = "camera_unit_config";
@@ -118,6 +142,10 @@ public final class ConfigProfile {
                 byte[] profile = content(appClassLoader, name);
                 if (profile == null) {
                     // A profile only ships the files it patches; a missing one falls through to stock.
+                    if (FEATURES.equals(name) && new File(FEATURES_OFF).exists()
+                        && new File(dir, name).delete()) {
+                        Log.i(TAG, "feature table withdrawn, the stock one is served (" + FEATURES_OFF + ")");
+                    }
                     continue;
                 }
                 if (!dir.isDirectory() && !dir.mkdirs()) {
@@ -157,6 +185,7 @@ public final class ConfigProfile {
      * underneath it when that can be read.
      */
     private static byte[] content(ClassLoader appClassLoader, String name) {
+        if (FEATURES.equals(name) && new File(FEATURES_OFF).exists()) return null;
         byte[] shipped = asset(appClassLoader, name);
         if (shipped == null || !UNIT.equals(name) || new File(LIVE_OFF).exists()) return shipped;
         byte[] merged = merge(shipped, readFile(new File(LIVE)));

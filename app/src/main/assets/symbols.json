@@ -2245,6 +2245,14 @@
       "strings": [
         "func_support_touch_down_capture"
       ]
+    },
+    "BaseMode.capture": {
+      "kind": "method",
+      "in": "@BaseMode",
+      "ret": "boolean",
+      "strings": [
+        "capture, checkStateBeforeCapture true, so return"
+      ]
     }
   },
   "gallery": {

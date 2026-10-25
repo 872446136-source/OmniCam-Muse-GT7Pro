@@ -5,6 +5,7 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XC_MethodReplacement;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
+import java.io.File;
 import java.lang.reflect.Method;
 import local.jiege.hook.common.Log;
 import local.jiege.hook.common.Reflection;
@@ -23,6 +24,35 @@ final class GrModeHooks {
     private static final String TAG = "RicohGrPort";
     private static final String STYLE_FEATURE = "com.oplus.feature.effect.style.support";
 
+    /**
+     * What the GR shutter asks before it fires. 477's report: the press reaches
+     * {@code ShutterHandler.gr}, the log shows {@code shutter handled by …}, and then nothing —
+     * no capture, no thumbnail, no error.
+     *
+     * <p>The handler is a two-step: the button-down message arms the capture processor
+     * ({@code CaptureProcessor.H.a(true)} and {@code BaseMode.si(null)}), and the button-up message
+     * only fires it when {@code GrMode.Fe()} says touch-down capture is supported. That method is
+     * two gates deep:
+     *
+     * <pre>
+     *   super.Fe()   → BaseMode.Fe() → getSupportFunction("func_support_touch_down_capture")
+     *                                → Util.o1(s(), U0, captureProcessor.H())
+     *                                → CameraConfig "com.oplus.support.pre.capture.frames.in.hal"
+     *   Fe()         → com.google.protobuf.a.b(24, …).orElse(-1) &gt; -1
+     * </pre>
+     *
+     * <p>Both are per-device answers this firmware gives false, so the up event takes the branch
+     * that registers a {@code GRCapMode} callback and never calls {@code BaseMode.ij(0)} — the
+     * method that logs {@code touchDownCapture, onCameraShutterButtonClick} and starts the capture.
+     * The mode is otherwise healthy: preview runs, the session opens on operation mode 0x8009, and
+     * the watermark is drawn. Only this one predicate stands between the press and the picture, so
+     * it is answered true for GR.
+     *
+     * <p>Escape hatch: {@code touch /data/adb/omnicam_grshutter_off}.
+     */
+    private static final String TOUCH_DOWN_CAPTURE = "func_support_touch_down_capture";
+    private static final String SHUTTER_OFF = "/data/adb/omnicam_grshutter_off";
+
     private GrModeHooks() {}
 
     static void install(ClassLoader classLoader) throws Throwable {
@@ -32,6 +62,7 @@ final class GrModeHooks {
         hookAppModeInheritance(symbols);
         hookSdkModeInheritance(classLoader);
         GrState.init(symbols);
+        Log.guard(TAG, "GR shutter", () -> hookTouchDownCapture(symbols));
         Log.guard(TAG, "GR entrance buttons", () -> hookEntranceButtons(symbols, classLoader));
         Log.guard(TAG, "GR effect branch", () -> hookMasterEffectBranch(symbols));
         Log.guard(TAG, "GR effect panel lifecycle", () -> hookEffectPanelLifecycle(symbols));
@@ -93,9 +124,62 @@ final class GrModeHooks {
                     param.setResult(XposedBridge.invokeOriginalMethod(professionalSupport, param.thisObject, param.args));
                 } else if ("pref_filter_process_key".equals(key) || "pref_support_switch_camera_button".equals(key)) {
                     param.setResult(Boolean.TRUE);
+                } else if (TOUCH_DOWN_CAPTURE.equals(key) && !new File(SHUTTER_OFF).exists()) {
+                    param.setResult(Boolean.TRUE);
                 }
             }
         });
+    }
+
+    /**
+     * Answers the two gates described on {@link #TOUCH_DOWN_CAPTURE} so a GR press actually fires.
+     *
+     * <p>The key is handled in the existing {@code getSupportFunction} hook above; what is left is
+     * {@code Fe()} itself, which adds a setting lookup on top of it. Both are hooked rather than
+     * only {@code Fe()}, because {@code Fe()} is also asked by the UI when it decides whether to
+     * show the touch-down hint — that answer should agree with the shutter's.
+     *
+     * <p>Which method to hook: {@code GrMode} is the leaf of the chain, and the override that the
+     * shutter actually reaches sits one or two classes up it, so the override is looked up by
+     * walking from {@code GrMode} towards {@code BaseMode} for a declaration with the resolved
+     * base method's name and signature. Nothing here names an obfuscated member: the anchor is the
+     * symbol-resolved {@code BaseMode.Fe}, and the walk stops at its declaring class. If no class in
+     * between overrides it, the base method is hooked and the instance check below keeps it to GR.
+     *
+     * <p>Only the false case is overridden: on a device where the stock answer is already true
+     * nothing changes, and the one line per process says so.
+     */
+    private static void hookTouchDownCapture(final Symbols symbols) throws Throwable {
+        final Class<?> grMode = symbols.cls("GrMode");
+        Method base = symbols.method("BaseMode.touchDownCapture");
+        Method target = overrideTowards(grMode, base);
+        XposedBridge.hookMethod(target, new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                if (!grMode.isInstance(param.thisObject)) return;
+                if (Boolean.TRUE.equals(param.getResult())) return;
+                if (new File(SHUTTER_OFF).exists()) return;
+                param.setResult(Boolean.TRUE);
+                Log.i(TAG, "touch-down capture answered true: stock said false, so the shutter only "
+                    + "registered a callback and never called BaseMode.ij(0)");
+            }
+        });
+        Log.i(TAG, "GR touch-down capture hooked on " + target);
+    }
+
+    /**
+     * The declaration of {@code base} that a call on {@code type} reaches: the nearest class between
+     * {@code type} and {@code base}'s own class that declares the same method, or {@code base} itself.
+     */
+    private static Method overrideTowards(Class<?> type, Method base) {
+        for (Class<?> c = type; c != null && c != base.getDeclaringClass(); c = c.getSuperclass()) {
+            try {
+                Method declared = c.getDeclaredMethod(base.getName(), base.getParameterTypes());
+                if (declared.getReturnType() == base.getReturnType()) return declared;
+            } catch (NoSuchMethodException ignored) {
+                // Not here; keep walking up.
+            }
+        }
+        return base;
     }
 
     /** SDK side: GRCapMode configures sessions like ProfessionalMode. */

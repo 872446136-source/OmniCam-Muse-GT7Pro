@@ -88,10 +88,21 @@ public final class ConfigProfile {
     private static final String[] MANAGED_FEATURES = {"movie_mode", "high_pixel_mode"};
 
     /**
-     * The one use case the module adds. XPAN's preview and capture streams are named here and the
-     * firmware has no entry for them, so the mode cannot open a stream without it.
+     * The use cases the module adds, because the firmware names the mode but not its streams.
+     *
+     * <ul>
+     *   <li>{@code xpan_case} — XPAN's preview and capture streams.</li>
+     *   <li>{@code retro_camera_case} — POP. 478's report ends with
+     *       {@code RuntimeException: getUseCaseValues, retro_camera_case's usecase_info are not
+     *       configured!} raised from {@code RetroCameraMode.createRequestTag} while the next mode
+     *       was opening its preview, so the switch after POP left the camera unit with no preview
+     *       at all: the mode changes, nothing else does, and every later mode is stuck. The entry
+     *       is this device's own {@code sat_photo_case}: POP opens the same {@code rear_sat} stream
+     *       as the stock sat photo mode, so every stream name in it is one this HAL already
+     *       accepts.</li>
+     * </ul>
      */
-    private static final String MANAGED_USECASE = "xpan_case";
+    private static final String[] MANAGED_USECASES = {"xpan_case", "retro_camera_case"};
 
     private ConfigProfile() {}
 
@@ -160,8 +171,9 @@ public final class ConfigProfile {
      * else. Only the first kind may come from the module after an update — the second has to come
      * from the device, or an OTA's new sizes, new tables and new modes are reverted the moment the
      * camera starts. So the live file is the base, and the module writes over exactly the keys it
-     * owns: five added modes, one overridden operation code, two feature tables, and the mode lists
-     * (in the module's order, but only for modes the device still offers).
+     * owns: five added modes, one overridden operation code, two feature tables, the use cases the
+     * firmware has no entry for, and the mode lists (in the module's order, but only for modes the
+     * device still offers).
      *
      * <p>Null when the live file cannot be read or does not have the shape this needs; the caller
      * then serves the shipped file unchanged.
@@ -196,8 +208,10 @@ public final class ConfigProfile {
             }
             JSONObject shippedCases = shipped.optJSONObject("usecase_info");
             JSONObject liveCases = live.optJSONObject("usecase_info");
-            if (shippedCases != null && liveCases != null && shippedCases.has(MANAGED_USECASE)) {
-                liveCases.put(MANAGED_USECASE, shippedCases.get(MANAGED_USECASE));
+            if (shippedCases != null && liveCases != null) {
+                for (String useCase : MANAGED_USECASES) {
+                    if (shippedCases.has(useCase)) liveCases.put(useCase, shippedCases.get(useCase));
+                }
             }
             for (java.util.Iterator<String> it = shippedLists.keys(); it.hasNext(); ) {
                 String group = it.next();

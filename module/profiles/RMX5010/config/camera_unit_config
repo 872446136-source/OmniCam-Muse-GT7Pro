@@ -940,6 +940,56 @@
       {
         "raw_output": "var_camera"
       }
+    ],
+    "retro_camera_case": [
+      {
+        "capture_meta": "rear_sat"
+      },
+      {
+        "preview": "rear_sat"
+      },
+      {
+        "raw16_output": "rear_main"
+      },
+      {
+        "raw16_output": "rear_wide"
+      },
+      {
+        "raw16_output": "rear_tele"
+      },
+      {
+        "raw_output": "rear_main"
+      },
+      {
+        "raw_output": "rear_wide"
+      },
+      {
+        "raw_output": "rear_tele"
+      },
+      {
+        "capture_yuv": "rear_main"
+      },
+      {
+        "capture_yuv": "rear_wide"
+      },
+      {
+        "capture_yuv": "rear_tele"
+      },
+      {
+        "preview_in_preview": "rear_sat"
+      },
+      {
+        "capture_raw10_dol": "rear_main"
+      },
+      {
+        "capture_raw10_dol": "rear_tele"
+      },
+      {
+        "capture_raw10_fullsize": "rear_main"
+      },
+      {
+        "capture_raw10_fullsize": "rear_tele"
+      }
     ]
   },
   "dng_description": {

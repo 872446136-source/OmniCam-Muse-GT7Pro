@@ -27,7 +27,7 @@ public final class ModeDataReset {
     private static final String MARKER = "mode_db_reset";
     private static final String DATABASES = "databases";
     /** Bump when a new mode has to be re-seeded. */
-    private static final String VERSION = "475";
+    private static final String VERSION = "476";
     private static final String[] FILES = {
         "mode_data.db", "mode_data.db-journal", "mode_data.db-wal", "mode_data.db-shm",
     };

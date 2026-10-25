@@ -352,7 +352,7 @@
   "CaptureParams.refreshEffectEntry": {
    "kind": "method",
    "in": "@CaptureParams",
-   "name": "H2",
+   "name": "S3",
    "params": [],
    "ret": "void"
   },
@@ -507,14 +507,16 @@
   },
   "Lut3dData.paletteMode": {
    "kind": "method",
-   "in": "com.oplus.camera.common.utils.Lut3dDataManager",
    "params": [
     "java.lang.String"
    ],
    "ret": "boolean",
    "static": true,
    "strings": [
-    "com.oplus.feature.color.palette.support"
+    "com.oplus.feature.color.palette.support",
+    "common",
+    "portrait",
+    "night"
    ]
   },
   "Mode.afMode": {
@@ -1002,7 +1004,6 @@
    "kind": "method",
    "params": [
     "int",
-    null,
     "java.lang.String"
    ],
    "ret": "java.util.List",
@@ -1366,7 +1367,7 @@
     "com.oplus.blockVibration.delay"
    ],
    "notInvokes": [
-    "Landroid/os/ConditionVariable;->block(J)Z"
+    "@SoundPlayer.ready"
    ]
   },
   "SoundPlayer.unsilence": {
@@ -1377,7 +1378,7 @@
    ],
    "ret": "void",
    "invokes": [
-    "Landroid/os/ConditionVariable;->block(J)Z"
+    "@SoundPlayer.ready"
    ]
   },
   "SoundPlayer.refresh": {
@@ -1631,9 +1632,15 @@
   "Zoom.fadeLabels": {
    "kind": "method",
    "in": "com.oplus.camera.feature.zoom.view.ZoomSeekBar",
-   "name": "f4",
    "params": [],
-   "ret": "void"
+   "ret": "void",
+   "strings": [
+    "ZoomSeekBar"
+   ],
+   "invokes": [
+    "Landroid/graphics/Paint;->setAlpha(I)V",
+    "Landroid/graphics/Color;->alpha(I)I"
+   ]
   },
   "ZoomBase.fadeLabels": {
    "kind": "method",
@@ -1665,79 +1672,79 @@
   "Shutter.b3": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "b3",
+   "name": "c3",
    "type": "android.graphics.RectF"
   },
   "Shutter.c3": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "c3",
+   "name": "d3",
    "type": "android.graphics.RectF"
   },
   "Shutter.d3": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "d3",
+   "name": "e3",
    "type": "android.graphics.RectF"
   },
   "Shutter.e3": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "e3",
+   "name": "f3",
    "type": "android.graphics.RectF"
   },
   "Shutter.g3": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "g3",
+   "name": "h3",
    "type": "android.graphics.RectF"
   },
   "Shutter.h3": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "h3",
+   "name": "i3",
    "type": "android.graphics.RectF"
   },
   "Shutter.l3": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "l3",
+   "name": "m3",
    "type": "android.graphics.RectF"
   },
   "Shutter.t4": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "t4",
+   "name": "u4",
    "type": "android.graphics.SweepGradient"
   },
   "Shutter.H4": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "H4",
+   "name": "I4",
    "type": "android.graphics.LinearGradient"
   },
   "Shutter.I4": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "I4",
+   "name": "J4",
    "type": "android.graphics.LinearGradient"
   },
   "Shutter.s3": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "s3",
+   "name": "t3",
    "type": "android.graphics.Paint"
   },
   "Shutter.j1": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "j1",
+   "name": "k1",
    "type": "int"
   },
   "Shutter.k1": {
    "kind": "field",
    "in": "com.oplus.camera.control.MainShutterButton",
-   "name": "k1",
+   "name": "l1",
    "type": "int"
   },
   "BitmapUtil.cropCenterByScale": {
@@ -2169,9 +2176,24 @@
   "FeaturePresenter.getCameraMode": {
    "kind": "method",
    "in": "@FeaturePresenter",
-   "name": "getCameraMode",
+   "name": "q",
    "params": [],
    "ret": "java.lang.String"
+  },
+  "SoundPlayer.ready": {
+   "kind": "method",
+   "in": "@SoundPlayer",
+   "params": [],
+   "ret": "void",
+   "invokes": [
+    "Landroid/os/ConditionVariable;->block(J)Z"
+   ]
+  },
+  "Shutter.ring": {
+   "kind": "field",
+   "in": "com.oplus.camera.control.MainShutterButton",
+   "name": "d3",
+   "type": "android.graphics.RectF"
   }
  },
  "gallery": {

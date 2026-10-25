@@ -3,7 +3,6 @@ package local.jiege.hook.modes;
 import android.graphics.RectF;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -28,23 +27,30 @@ import local.jiege.hook.common.Log;
  *
  * <p>{@code p0(RectF, float, float[], float)} is {@code drawInverseMaskOverlay} — the rounded-rect
  * mask the retro UI (POP, and only POP) paints over the viewfinder. It binds a shader program field
- * ({@code j0}, the one built from {@code texture_vertex_shader_inverse_mask} +
- * {@code draw_inverse_mask_shader}) and that field is null in this process, so the bind throws, the
- * exception leaves {@code onDrawFrame}, and the GL thread dies. From then on the preview never draws
- * again: re-entering the camera comes up in POP, the surface is never painted, and the mode bar does
- * not respond because the UI is waiting on a preview that is gone. That is the black screen.
+ * and that field is null in this process, so the bind throws, the exception leaves
+ * {@code onDrawFrame}, and the GL thread dies. From then on the preview never draws again: the
+ * camera comes up in POP, the surface is never painted, and the mode bar does not respond because
+ * the UI is waiting on a preview that is gone. That is the black screen.
  *
- * <p>Why the field is null is not answered by the offline index — {@code o.<init>} does assign it,
- * last of all its shader programs, so either the assignment is behind a condition this device does
- * not meet or the program was released again. It does not matter for the fix: the overlay is
- * decoration, and a frame without it is worth more than a dead preview thread. So the draw is called
- * through {@code invokeOriginalMethod} and any throwable is swallowed.
+ * <p>475 guarded the wrong method. It hooked {@code bo.r.r(gl)} on the assumption that this was
+ * the frame entry, but {@code bo.r} is the renderer's holder object; the frame that dies is
+ * {@code PreviewRenderer.onDrawFrame()} — {@code co.l} in that build, {@code nn.o} in 7.013.40 —
+ * which is a plain no-argument method that calls the canvas under a lock. Guarding the holder's
+ * per-frame helper caught nothing, which is why POP still died with the guard in place. 476 hooks
+ * the real entry.
  *
- * <p>Second hook, same reason at a wider aperture: {@code bo.r.r(gl)} is the
- * {@code PreviewEffectProcessor.onDrawFrame} the GL thread calls once per frame. It is wrapped the
- * same way, so a null shader anywhere else in the draw path costs one overlay instead of the whole
- * preview. Nothing is logged per frame — the first few and then one in two hundred — because a
- * per-frame log would itself be a reason for the camera to stall.
+ * <p>Why the field is null is not answered by the offline index. It does not matter for the fix:
+ * the overlay is decoration, and a frame without it is worth more than a dead preview thread. So
+ * the frame is called through {@code invokeOriginalMethod} and any throwable is swallowed, and the
+ * mask draw is wrapped the same way at a narrower aperture. Nothing is logged per frame — the first
+ * few and then one in two hundred — because a per-frame log would itself be a reason for the camera
+ * to stall.
+ *
+ * <p>Class names. {@code com.oplus.camera.common.gl.*} is a short-name package whose members get
+ * reshuffled between camera builds (7.013.40 turned {@code gl.o} into {@code gl.p} and made
+ * {@code gl.o} something else entirely), so the canvas is found by shape among a few candidates
+ * rather than by one fixed name. The mask method itself is never named: {@code p0} became
+ * {@code r0}, and the four-argument signature is unique on that class.
  *
  * <p>Both hooks are armed from {@code Application.onCreate} (see {@link ModeGates#afterApplication}):
  * resolving a camera class while the process is still being bound loads the config engine too early
@@ -55,11 +61,26 @@ import local.jiege.hook.common.Log;
 public final class GlGuard {
     private static final String TAG = "GlGuard";
     private static final String OFF = "/data/adb/omnicam_glguard_off";
-    private static final String CANVAS = "com.oplus.camera.common.gl.o";
-    private static final String MASK = "p0";
-    private static final String EFFECT_PROCESSOR = "bo.r";
-    private static final String FRAME = "r";
-    private static final String GL_CALLBACK = "com.oplus.camera.common.gl.g";
+
+    /**
+     * Candidates for GLES20Canvas. The package is not obfuscated as a whole, but its classes carry
+     * one-letter names that move: the build this module targets first is listed first.
+     */
+    private static final String[] CANVAS = {
+        "com.oplus.camera.common.gl.p",   // 7.013.40
+        "com.oplus.camera.common.gl.o",   // 7.006.112
+        "com.oplus.camera.common.gl.q",
+        "com.oplus.camera.common.gl.n",
+        "com.oplus.camera.common.gl.r",
+    };
+
+    /** Candidates for PreviewRenderer, the class whose onDrawFrame the GL thread calls. */
+    private static final String[] RENDERER = {
+        "nn.o",  // 7.013.40
+        "co.l",  // 7.006.112
+    };
+
+    private static final String FRAME = "onDrawFrame";
 
     private static final int FIRST_LOGS = 5;
     private static final int EVERY = 200;
@@ -86,95 +107,100 @@ public final class GlGuard {
     private static synchronized void install(ClassLoader classLoader) {
         if (installed) return;
         installed = true;
-        guardMask(classLoader);
         guardFrame(classLoader);
+        guardMask(classLoader);
     }
 
-    /** {@code GLES20Canvas.p0(RectF, float, float[], float)} — the retro inverse-mask overlay. */
-    private static void guardMask(ClassLoader classLoader) {
-        Class<?> canvas;
-        try {
-            canvas = Class.forName(CANVAS, false, classLoader);
-        } catch (Throwable error) {
-            Log.e(TAG, "canvas class unavailable", error);
-            return;
-        }
-        Method draw = null;
-        for (Method method : canvas.getDeclaredMethods()) {
-            Class<?>[] types = method.getParameterTypes();
-            // Name and shape: p0 is one obfuscated letter, so the shape decides, and the name only
-            // says which of the matching overloads is meant.
-            if (MASK.equals(method.getName()) && types.length == 4 && types[0] == RectF.class
-                && types[1] == float.class && types[2] == float[].class && types[3] == float.class
-                && method.getReturnType() == void.class) {
-                draw = method;
-                break;
-            }
-        }
-        if (draw == null) {
-            Log.i(TAG, "inverse-mask draw not found on " + CANVAS);
-            return;
-        }
-        final String name = draw.getName();
-        try {
-            XposedBridge.hookMethod(draw, new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    try {
-                        XposedBridge.invokeOriginalMethod(param.method, param.thisObject, param.args);
-                    } catch (Throwable error) {
-                        note(MASK_FAILURES, "inverse-mask overlay skipped", error);
-                    }
-                    // Always: the original has already run (or thrown), it must not run twice.
-                    param.setResult(null);
-                }
-            });
-            Log.i(TAG, "inverse-mask overlay guarded (" + name + ")");
-        } catch (Throwable error) {
-            Log.e(TAG, "inverse-mask hook failed", error);
-        }
-    }
-
-    /** {@code PreviewEffectProcessor.r(gl)} — the per-frame entry the GL thread calls. */
+    /**
+     * {@code PreviewRenderer.onDrawFrame()} — the GL thread's frame entry, and the method the 473
+     * stack trace died in. Wrapping it keeps one bad overlay from taking the thread with it.
+     */
     private static void guardFrame(ClassLoader classLoader) {
-        Class<?> processor;
-        try {
-            processor = Class.forName(EFFECT_PROCESSOR, false, classLoader);
-        } catch (Throwable error) {
-            Log.e(TAG, "effect processor unavailable", error);
-            return;
-        }
-        Method frame = null;
-        for (Method method : processor.getDeclaredMethods()) {
-            Class<?>[] types = method.getParameterTypes();
-            // The class has four one-argument methods taking the same GL callback; only r() is the
-            // draw. e(g)V is one of the others, so the name has to be part of the match.
-            if (FRAME.equals(method.getName()) && types.length == 1
-                && GL_CALLBACK.equals(types[0].getName())
-                && method.getReturnType() == void.class) {
-                frame = method;
-                break;
+        for (String name : RENDERER) {
+            Class<?> renderer;
+            try {
+                renderer = Class.forName(name, false, classLoader);
+            } catch (Throwable ignored) {
+                continue;
+            }
+            Method frame = null;
+            for (Method method : renderer.getDeclaredMethods()) {
+                // onDrawFrame is a framework override, so the name survives obfuscation; the shape
+                // only confirms it is the no-argument entry.
+                if (FRAME.equals(method.getName()) && method.getParameterTypes().length == 0
+                    && method.getReturnType() == void.class) {
+                    frame = method;
+                    break;
+                }
+            }
+            if (frame == null) continue;
+            try {
+                XposedBridge.hookMethod(frame, new XC_MethodHook() {
+                    @Override protected void beforeHookedMethod(MethodHookParam param) {
+                        try {
+                            XposedBridge.invokeOriginalMethod(param.method, param.thisObject, param.args);
+                        } catch (Throwable error) {
+                            note(FRAME_FAILURES, "draw frame skipped", error);
+                        }
+                        // Always: the original has already run (or thrown), it must not run twice.
+                        param.setResult(null);
+                    }
+                });
+                Log.i(TAG, "preview frame guarded (" + name + "." + FRAME + ")");
+                return;
+            } catch (Throwable error) {
+                Log.e(TAG, "frame hook failed on " + name, error);
+                return;
             }
         }
-        if (frame == null) {
-            Log.i(TAG, "onDrawFrame not found on " + EFFECT_PROCESSOR);
-            return;
-        }
-        final String name = frame.getName();
-        try {
-            XposedBridge.hookMethod(frame, new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    try {
-                        XposedBridge.invokeOriginalMethod(param.method, param.thisObject, param.args);
-                    } catch (Throwable error) {
-                        note(FRAME_FAILURES, "draw frame skipped", error);
-                    }
-                    param.setResult(null);
+        Log.i(TAG, "onDrawFrame not found, the preview thread is only guarded at the mask");
+    }
+
+    /**
+     * {@code GLES20Canvas.<mask>(RectF, float, float[], float)} — the retro inverse-mask overlay.
+     *
+     * <p>Found by shape, not by name: the method is one obfuscated letter, and the four-argument
+     * signature with a RectF, a float, a float array and a float is unique on that class.
+     */
+    private static void guardMask(ClassLoader classLoader) {
+        for (String name : CANVAS) {
+            Class<?> canvas;
+            try {
+                canvas = Class.forName(name, false, classLoader);
+            } catch (Throwable ignored) {
+                continue;
+            }
+            Method draw = null;
+            for (Method method : canvas.getDeclaredMethods()) {
+                Class<?>[] types = method.getParameterTypes();
+                if (types.length == 4 && types[0] == RectF.class && types[1] == float.class
+                    && types[2] == float[].class && types[3] == float.class
+                    && method.getReturnType() == void.class) {
+                    draw = method;
+                    break;
                 }
-            });
-            Log.i(TAG, "preview frame guarded (" + name + ")");
-        } catch (Throwable error) {
-            Log.e(TAG, "frame hook failed", error);
+            }
+            if (draw == null) continue;
+            final String where = name + "." + draw.getName();
+            try {
+                XposedBridge.hookMethod(draw, new XC_MethodHook() {
+                    @Override protected void beforeHookedMethod(MethodHookParam param) {
+                        try {
+                            XposedBridge.invokeOriginalMethod(param.method, param.thisObject, param.args);
+                        } catch (Throwable error) {
+                            note(MASK_FAILURES, "inverse-mask overlay skipped", error);
+                        }
+                        param.setResult(null);
+                    }
+                });
+                Log.i(TAG, "inverse-mask overlay guarded (" + where + ")");
+                return;
+            } catch (Throwable error) {
+                Log.e(TAG, "inverse-mask hook failed on " + where, error);
+                return;
+            }
         }
+        Log.i(TAG, "inverse-mask draw not found in any canvas candidate");
     }
 
     /**

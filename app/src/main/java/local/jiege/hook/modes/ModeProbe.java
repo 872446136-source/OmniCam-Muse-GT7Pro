@@ -41,9 +41,14 @@ import local.jiege.hook.common.Log;
 public final class ModeProbe {
     private static final String TAG = "ModeProbe";
     private static final String OFF = "/data/adb/omnicam_probe_off";
-    private static final String OPERATOR = "dq.e";
-    private static final String HELPER = "pq.h";
-    private static final String MODE_INFO = "ja.a";
+    /**
+     * ModeDataSQLiteOpenHelper, HeadlineHelper and ModeInfo. Two-letter names, and they move with
+     * every camera build: 7.013.40 renamed all three (dq.e → np.e, pq.h → zp.k, ja.a → ia.a). The
+     * build this module targets is listed first, the previous one second, so a rollback still logs.
+     */
+    private static final String[] OPERATOR = {"np.e", "dq.e"};
+    private static final String[] HELPER = {"zp.k", "pq.h"};
+    private static final String[] MODE_INFO = {"ia.a", "ja.a"};
     private static final String PREFIX = "com.oplus.camera.";
     private static final String DB = "/data/user/0/com.oplus.camera/databases/mode_data.db";
     private static final String[] WANTED = {
@@ -78,8 +83,7 @@ public final class ModeProbe {
         installed = true;
         Class<?> operator = load(OPERATOR, classLoader);
         Class<?> helper = load(HELPER, classLoader);
-        Class<?> modeInfo = load(MODE_INFO, classLoader);
-        if (helper != null) hookName(helper);
+        Class<?> modeInfo = load(MODE_INFO, classLoader);        if (helper != null) hookName(helper);
         if (operator != null && helper != null && modeInfo != null) {
             hookQuery(operator, helper, modeInfo);
         }
@@ -90,16 +94,18 @@ public final class ModeProbe {
     }
 
     /** These classes live in the default package; the prefixed spelling is tried second. */
-    private static Class<?> load(String name, ClassLoader classLoader) {
-        for (String candidate : new String[] {name, PREFIX + name}) {
-            try {
-                Class<?> found = Class.forName(candidate, false, classLoader);
-                Log.i(TAG, candidate + " found");
-                return found;
-            } catch (Throwable ignored) {
+    private static Class<?> load(String[] names, ClassLoader classLoader) {
+        for (String name : names) {
+            for (String candidate : new String[] {name, PREFIX + name}) {
+                try {
+                    Class<?> found = Class.forName(candidate, false, classLoader);
+                    Log.i(TAG, candidate + " found");
+                    return found;
+                } catch (Throwable ignored) {
+                }
             }
         }
-        Log.i(TAG, name + " not found, its lookups are not logged");
+        Log.i(TAG, names[0] + " not found, its lookups are not logged");
         return null;
     }
 

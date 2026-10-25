@@ -26,6 +26,9 @@ PROFILE = ROOT / "module/profiles/RMX5010/config/camera_unit_config"
 ASSET = ROOT / "app/src/main/assets/profile/RMX5010/camera_unit_config"
 
 # Modes that only make sense on the rear cameras. front_main deliberately keeps its list.
+#
+# rear_sat is included because 474 already put gr_mode and retro_camera_mode there and it worked:
+# the list is what the mode picker may offer per camera group, not what the fusion path runs.
 REAR_LISTS = ["rear_main", "rear_tele", "rear_wide", "rear_sat"]
 ADD_TO_REAR = ["movie_mode", "high_pixel_mode"]
 
@@ -34,10 +37,12 @@ def add_mode(config, mode, operation_mode, feature=None):
     config["mode_operation_mode"][mode] = operation_mode
     if feature is not None:
         config["feature_operation_mode"][mode] = feature
+    # Idempotent: a previous run may have put the mode in lists this run does not want.
+    for name, modes in config["mode_type_list"].items():
+        while mode in modes:
+            modes.remove(mode)
     for name in REAR_LISTS:
-        modes = config["mode_type_list"][name]
-        if mode not in modes:
-            modes.append(mode)
+        config["mode_type_list"][name].append(mode)
 
 
 def main():

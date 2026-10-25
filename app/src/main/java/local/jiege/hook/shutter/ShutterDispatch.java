@@ -45,9 +45,15 @@ import local.jiege.hook.modes.ModeGates;
 public final class ShutterDispatch {
     private static final String TAG = "ShutterDispatch";
     private static final String OFF = "/data/adb/omnicam_shutterprobe_off";
-    private static final String BUS = "do.a";
+    /**
+     * The event bus and its base message type. Both moved in 7.013.40 — do.a is now an animation
+     * helper with a completely different set of methods, and do.c is the filter renderer — so the
+     * old names would have hooked something unrelated. The new pair is listed first, the previous
+     * build second.
+     */
+    private static final String[] BUS = {"pn.a", "do.a"};
+    private static final String[] MESSAGE = {"pn.c", "do.c"};
     private static final String DISPATCH = "d";
-    private static final String MESSAGE = "do.c";
     private static final String MARKER = "ShutterButton";
 
     private static boolean installed;
@@ -69,40 +75,41 @@ public final class ShutterDispatch {
     private static synchronized void install(ClassLoader classLoader) {
         if (installed) return;
         installed = true;
-        Class<?> bus;
-        try {
-            bus = Class.forName(BUS, false, classLoader);
-        } catch (Throwable error) {
-            Log.e(TAG, "event bus unavailable", error);
-            return;
-        }
-        Method dispatch = null;
-        for (Method method : bus.getDeclaredMethods()) {
-            Class<?>[] types = method.getParameterTypes();
-            // d(do.c, boolean): the base message type every event extends, and a sticky flag.
-            if (DISPATCH.equals(method.getName()) && types.length == 2
-                && MESSAGE.equals(types[0].getName()) && types[1] == boolean.class) {
-                dispatch = method;
-                break;
+        for (int i = 0; i < BUS.length; i++) {
+            Class<?> bus;
+            try {
+                bus = Class.forName(BUS[i], false, classLoader);
+            } catch (Throwable ignored) {
+                continue;
+            }
+            Method dispatch = null;
+            for (Method method : bus.getDeclaredMethods()) {
+                Class<?>[] types = method.getParameterTypes();
+                // d(base message, sticky flag): the type every event extends, and a boolean.
+                if (DISPATCH.equals(method.getName()) && types.length == 2
+                    && MESSAGE[i].equals(types[0].getName()) && types[1] == boolean.class) {
+                    dispatch = method;
+                    break;
+                }
+            }
+            if (dispatch == null) continue;
+            try {
+                XposedBridge.hookMethod(dispatch, new XC_MethodHook() {
+                    @Override protected void beforeHookedMethod(MethodHookParam param) {
+                        Object message = param.args[0];
+                        if (message == null) return;
+                        String type = message.getClass().getName();
+                        if (type.indexOf(MARKER) < 0) return;
+                        Log.i(TAG, "shutter event dispatched");
+                    }
+                });
+                Log.i(TAG, "shutter dispatch hooked on " + BUS[i]);
+                return;
+            } catch (Throwable error) {
+                Log.e(TAG, "dispatch hook failed on " + BUS[i], error);
+                return;
             }
         }
-        if (dispatch == null) {
-            Log.i(TAG, "dispatch method not found on " + BUS);
-            return;
-        }
-        try {
-            XposedBridge.hookMethod(dispatch, new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    Object message = param.args[0];
-                    if (message == null) return;
-                    String type = message.getClass().getName();
-                    if (type.indexOf(MARKER) < 0) return;
-                    Log.i(TAG, "shutter event dispatched");
-                }
-            });
-            Log.i(TAG, "shutter dispatch hooked");
-        } catch (Throwable error) {
-            Log.e(TAG, "dispatch hook failed", error);
-        }
+        Log.i(TAG, "event bus not found, a shutter press is not traced");
     }
 }

@@ -14,11 +14,16 @@ public final class PopPort {
     /** @param mainProcess resources are only needed in the camera's main process */
     public static void installCamera(ClassLoader classLoader, boolean mainProcess) {
         if (mainProcess) {
-            try {
-                PopResources.install(classLoader);
-            } catch (Throwable error) {
-                Log.e(TAG, "POP resource hooks unavailable", error);
-            }
+        try {
+            PopResources.install(classLoader);
+        } catch (Throwable error) {
+            Log.e(TAG, "POP resource hooks unavailable", error);
+        }
+        try {
+            PopGuard.install(classLoader);
+        } catch (Throwable error) {
+            Log.e(TAG, "POP crash guard unavailable", error);
+        }
         }
         try {
             PopShutterGeometry.install(classLoader);

@@ -4,8 +4,10 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import java.io.File;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import local.jiege.hook.common.Log;
+import local.jiege.hook.common.Symbols;
 import local.jiege.hook.modes.ModeGates;
 
 /**
@@ -104,6 +106,7 @@ public final class ShutterDispatch {
                     }
                 });
                 Log.i(TAG, "shutter dispatch hooked on " + BUS[i]);
+                trace(classLoader);
                 return;
             } catch (Throwable error) {
                 Log.e(TAG, "dispatch hook failed on " + BUS[i], error);
@@ -111,5 +114,48 @@ public final class ShutterDispatch {
             }
         }
         Log.i(TAG, "event bus not found, a shutter press is not traced");
+    }
+
+    /**
+     * The two boundaries either side of the bus, so one press in a report says which half broke.
+     *
+     * <p>{@code shutter message built} is the message constructor — the click listener ends by
+     * building one of these, so a press with no such line never became an event. {@code shutter
+     * handled by …} is every method that takes the message: the photo path, the GR path and the
+     * third one. All three are resolved by shape, not by name, so this keeps working when the
+     * package is rebuilt.
+     */
+    private static void trace(ClassLoader classLoader) {
+        Symbols symbols = Symbols.get();
+        if (symbols.has("ShutterMessage")) {
+            try {
+                for (Constructor<?> constructor : symbols.cls("ShutterMessage").getDeclaredConstructors()) {
+                    XposedBridge.hookMethod(constructor, new XC_MethodHook() {
+                        @Override protected void beforeHookedMethod(MethodHookParam param) {
+                            Log.i(TAG, "shutter message built");
+                        }
+                    });
+                }
+            } catch (Throwable error) {
+                Log.e(TAG, "cannot watch the shutter message", error);
+            }
+        }
+        if (!symbols.has("ShutterHandler.all")) {
+            Log.i(TAG, "shutter handlers not found, only the bus is traced");
+            return;
+        }
+        try {
+            for (Method handler : symbols.<Method>all("ShutterHandler.all")) {
+                final String owner = handler.getDeclaringClass().getName();
+                XposedBridge.hookMethod(handler, new XC_MethodHook() {
+                    @Override protected void beforeHookedMethod(MethodHookParam param) {
+                        Log.i(TAG, "shutter handled by " + owner);
+                    }
+                });
+                Log.i(TAG, "shutter handler traced: " + owner + "." + handler.getName());
+            }
+        } catch (Throwable error) {
+            Log.e(TAG, "cannot watch the shutter handlers", error);
+        }
     }
 }

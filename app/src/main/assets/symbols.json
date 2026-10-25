@@ -2194,6 +2194,48 @@
    "in": "com.oplus.camera.control.MainShutterButton",
    "name": "d3",
    "type": "android.graphics.RectF"
+  },
+  "PopUI.show": {
+   "kind": "method",
+   "name": "run",
+   "params": [],
+   "ret": "void",
+   "strings": [
+    "showUIInternal",
+    "RetroCameraUIAniHelper"
+   ]
+  },
+  "PopUI.init": {
+   "kind": "method",
+   "params": [
+    "android.app.Activity",
+    "com.oplus.camera.protocal.ui.a"
+   ],
+   "ret": "void",
+   "strings": [
+    "RetroCameraUIContainer",
+    "initRetroCamFilterScrollView, root view is null!"
+   ]
+  },
+  "ShutterHandler.gr": {
+   "kind": "method",
+   "in": "@GrMode",
+   "params": [
+    "com.oplus.camera.protocal.ui.control.CameraShutterButtonEventSource$CameraShutterButtonEventMessage"
+   ],
+   "ret": "void"
+  },
+  "ShutterHandler.all": {
+   "kind": "method",
+   "params": [
+    "com.oplus.camera.protocal.ui.control.CameraShutterButtonEventSource$CameraShutterButtonEventMessage"
+   ],
+   "ret": "void",
+   "multi": true
+  },
+  "ShutterMessage": {
+   "kind": "class",
+   "name": "com.oplus.camera.protocal.ui.control.CameraShutterButtonEventSource$CameraShutterButtonEventMessage"
   }
  },
  "gallery": {

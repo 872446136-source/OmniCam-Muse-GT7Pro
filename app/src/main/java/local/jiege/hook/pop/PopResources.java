@@ -23,7 +23,10 @@ final class PopResources {
         File pld = new File(PLD_DIR, "pld");
         File pldJson = new File(pld, "pld.json");
         if (!pldJson.isFile()) {
-            Log.i(TAG, "POP PLD resources missing: " + pldJson);
+            // Say what is actually there: service.sh stages this from the module payload, and the
+            // 476 report could only say "missing" — which does not separate "the copy never ran"
+            // from "it ran and left a dangling link" (cp -a keeps links, cp -aL follows them).
+            Log.i(TAG, "POP PLD resources missing: " + pldJson + " " + describe(pld));
             return;
         }
         XposedHelpers.setStaticObjectField(XposedHelpers.findClass(
@@ -51,5 +54,21 @@ final class PopResources {
                 if (file.isFile()) param.setResult(Uri.fromFile(file));
             }
         });
+    }
+
+    /** {@code absent} / {@code a link to …} / the first few entries — enough to tell the cases apart. */
+    private static String describe(File dir) {
+        if (!dir.exists()) return "(" + dir + " is absent)";
+        if (!dir.isDirectory()) return "(" + dir + " is not a directory)";
+        String[] names = dir.list();
+        if (names == null) return "(" + dir + " cannot be listed)";
+        if (names.length == 0) return "(" + dir + " is empty)";
+        StringBuilder out = new StringBuilder("(").append(dir).append(" holds ")
+            .append(names.length).append(": ");
+        for (int i = 0; i < Math.min(names.length, 6); i++) {
+            if (i > 0) out.append(", ");
+            out.append(names[i]);
+        }
+        return out.append(names.length > 6 ? ", …)" : ")").toString();
     }
 }

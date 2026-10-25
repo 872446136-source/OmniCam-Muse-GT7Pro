@@ -130,10 +130,13 @@ POP_ASSET=$APP/files/pop_port
 if [ -d "$PAYLOAD/pld_watermark" ] || [ -d "$PAYLOAD/apk_resources" ]; then
     mkdir -p "$POP_ASSET/pld_watermark" "$POP_ASSET/apk_resources/json" \
         "$POP_ASSET/apk_resources/img" "$POP_ASSET/setting_Retro"
-    [ -d "$PAYLOAD/pld_watermark" ] && cp -a "$PAYLOAD/pld_watermark/." "$POP_ASSET/pld_watermark/"
-    [ -d "$PAYLOAD/apk_resources" ] && cp -a "$PAYLOAD/apk_resources/." "$POP_ASSET/apk_resources/"
+    # -L, not -a: the upstream data layer keeps some of these as links into a shared tree, and cp -a
+    # would copy the link itself, leaving a dangling path inside the app's directory. That is
+    # indistinguishable from "never copied" once the camera looks for the file.
+    [ -d "$PAYLOAD/pld_watermark" ] && cp -aL "$PAYLOAD/pld_watermark/." "$POP_ASSET/pld_watermark/" 2>/dev/null
+    [ -d "$PAYLOAD/apk_resources" ] && cp -aL "$PAYLOAD/apk_resources/." "$POP_ASSET/apk_resources/" 2>/dev/null
     if [ -d "$PAYLOAD/setting_Retro" ]; then
-        cp -f "$PAYLOAD/setting_Retro"/* "$POP_ASSET/setting_Retro/" 2>/dev/null || true
+        cp -fL "$PAYLOAD/setting_Retro"/* "$POP_ASSET/setting_Retro/" 2>/dev/null || true
     fi
     chown -R "$APP_UID:$APP_UID" "$POP_ASSET"
     find "$POP_ASSET" -type d -exec chmod 0755 {} \;

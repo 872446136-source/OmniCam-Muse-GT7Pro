@@ -17,6 +17,7 @@ import local.jiege.hook.gallery.BatchWatermark;
 import local.jiege.hook.gallery.WatermarkSeriesUnlock;
 import local.jiege.hook.gr.GrPort;
 import local.jiege.hook.guard.PresenterGuard;
+import local.jiege.hook.guard.UnmountedGuard;
 import local.jiege.hook.highpixel.HighPixel200mFace;
 import local.jiege.hook.highpixel.HighPixelEffects;
 import local.jiege.hook.launch.KeyLaunchMode;
@@ -137,12 +138,29 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         Capabilities.setNativeLibrary(nativeLibrary);
         Log.i("Capabilities", Capabilities.describe());
 
+        // Two different questions, two different answers since 484:
+        //   data  — the X10 / Hasse filter trees, which are read straight out of the merged mount;
+        //   grData — the GR tone tables, which also exist as a copy in the camera's private files.
+        // Using `data` for GR is what turned "the module mount is unmounted for this app" into
+        // "GR is off" in 483, and then into a freeze when the mode was entered anyway.
         boolean data = Capabilities.dataLayer();
+        boolean grData = Capabilities.grLmt();
         boolean lmt = Capabilities.lmt();
-        Diagnostics.setFilesMounted(data);
+        Diagnostics.setFilesMounted(Capabilities.dataRoot() != null);
+        Log.i("Capabilities", Capabilities.dataLayerNote());
         String noData = "滤镜 / GR 数据未挂载，KSU 模块没生效";
+        String noGrData = "GR 色调表没到位（合并树和私有目录副本都没有）";
         String noNative = "原生层未加载";
         String noLmt = "本机没有 /odm/etc/camera/basictone/lmt";
+
+        // Nothing to render GR or POP with, but the mode bar still lists both — the config profile
+        // names them and the mode database was seeded with them. Entering either one then runs a
+        // stock mode against tables that are not there: POP comes up black and GR hangs on the
+        // BasicTone load. This guard answers "common" for those two mode reads instead. It was
+        // written in 483 but never called, which is why the freeze survived that build.
+        if (Capabilities.dataRoot() == null) {
+            UnmountedGuard.installCamera(classLoader);
+        }
 
         // --- pure app layer: independent of the module's payload, so always installed ---
         Install.run("快启键模式", true, "", () -> KeyLaunchMode.installCamera(classLoader));
@@ -160,7 +178,7 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         Install.run("大师滤镜补全", data, noData, () -> MasterFilterCompletion.installCamera(classLoader));
 
         // --- tuning host: serve tables into the stock LMT directory through the path hooks ---
-        Install.run("GR 移植", data && lmt && nativeLibrary, !data ? noData : !lmt ? noLmt : noNative,
+        Install.run("GR 移植", grData && lmt && nativeLibrary, !grData ? noGrData : !lmt ? noLmt : noNative,
             () -> GrPort.installCamera(classLoader));
         if (!Capabilities.hasMode("gr_mode")) {
             // The hooks are harmless without the mode, but the mode item only exists when the
@@ -192,7 +210,7 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         boolean retroMode = retroTuning && Capabilities.hasMode("retro_camera_mode");
         Install.run("POP 复古相机", retroMode && nativeLibrary,
             !retroTuning
-                ? "本机没有 setting_Retro basictone（KSU 模块没刷入 retro 数据）"
+                ? "没有 setting_Retro（合并树和相机私有目录副本都没有）"
                 : "本机 mode_type_list 没有 retro_camera_mode（配置 profile 未生效）",
             () -> PopPort.installCamera(classLoader, CAMERA.equals(param.processName)));
         Install.run("无缝模糊保护", retroMode, "POP 未启用，无需保护",

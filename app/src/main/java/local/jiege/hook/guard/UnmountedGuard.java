@@ -25,8 +25,13 @@ public final class UnmountedGuard {
 
     private UnmountedGuard() {}
 
+    /**
+     * Whether the camera-side payload is reachable at all. Since 484 that includes the copy in the
+     * camera's private files, so "module unmounted for this app" is no longer the same thing as
+     * "no data" — the guard only fires when neither source exists.
+     */
     public static boolean filesMounted() {
-        return Capabilities.dataLayer();
+        return Capabilities.dataRoot() != null;
     }
 
     /**

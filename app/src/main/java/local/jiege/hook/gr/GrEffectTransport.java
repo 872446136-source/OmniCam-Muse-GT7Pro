@@ -6,6 +6,7 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import local.jiege.hook.common.Capabilities;
 import local.jiege.hook.common.Log;
 import local.jiege.hook.common.Reflection;
 import local.jiege.hook.common.Symbols;
@@ -20,7 +21,8 @@ import local.jiege.hook.common.Symbols;
  */
 final class GrEffectTransport {
     private static final String TAG = "RicohGrPort";
-    private static final String GR_LMT_DIR = "/odm/etc/camera/basictone/lmt_gr";
+
+    private static volatile boolean warnedNoTables;
 
     private GrEffectTransport() {}
 
@@ -50,7 +52,20 @@ final class GrEffectTransport {
         XposedBridge.hookAllMethods(XposedHelpers.findClass("com.oplus.ocs.camera.CombineLutHelper", classLoader), "init",
             new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    if (Boolean.TRUE.equals(loadingGrLut.get())) param.args[0] = GR_LMT_DIR;
+                    if (!Boolean.TRUE.equals(loadingGrLut.get())) return;
+                    // Only redirect when the tables are actually there. Pointing the combined-LUT
+                    // helper at a directory that does not exist gives a black preview (482) and, on
+                    // the BasicTone path, a hang (483); leaving the stock path at least shows an
+                    // image.
+                    String dir = Capabilities.grLmtDir();
+                    if (!Capabilities.grLmt()) {
+                        if (!warnedNoTables) {
+                            Log.i(TAG, "GR tables absent (" + dir + "), preview keeps the host LUT");
+                            warnedNoTables = true;
+                        }
+                        return;
+                    }
+                    param.args[0] = dir;
                 }
             });
     }

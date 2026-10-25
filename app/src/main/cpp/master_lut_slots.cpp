@@ -43,7 +43,6 @@
 namespace {
 
 constexpr char kTag[] = "MuseLutSlots";
-constexpr char kRicohLmt[] = "/odm/etc/camera/basictone/lmt_gr";
 
 // BasicTone (libBasicTonePhotoX9.so, X9U stock libBasicTonePhoto md5 827ff5d7…) table pointers.
 constexpr size_t kLmtTable = 0xd48;
@@ -117,11 +116,18 @@ bool contrastStage(int value, Stage &stage) {
     {
         std::lock_guard<std::mutex> lock(cacheMutex);
         if (!loaded) {
-            std::string root = kRicohLmt;
+            // Same resolution as the GR port: the merged tree first, the camera-private copy second.
+            const char *dir = grLmtDirectory();
+            if (dir == nullptr) {
+                __android_log_print(ANDROID_LOG_ERROR, kTag, "GR SC tables absent everywhere, contrast stays stock");
+                loaded = true;  // do not retry per frame
+                return false;
+            }
+            std::string root = dir;
             loaded = readCube(root + "/SC16Lut3", 16, low) && readCube(root + "/SC16Lut4", 16, zero)
                      && readCube(root + "/SC16Lut5", 16, high);
             if (!loaded) {
-                __android_log_print(ANDROID_LOG_ERROR, kTag, "GR SC tables missing under %s", kRicohLmt);
+                __android_log_print(ANDROID_LOG_ERROR, kTag, "GR SC tables missing under %s", dir);
                 return false;
             }
         }

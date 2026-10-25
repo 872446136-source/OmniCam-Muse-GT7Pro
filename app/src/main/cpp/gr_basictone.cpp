@@ -11,9 +11,11 @@
 #include <android/log.h>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <dlfcn.h>
 #include <mutex>
 #include <string>
+#include <unistd.h>
 #include <unordered_map>
 
 #include "native_hooks.h"
@@ -21,8 +23,19 @@
 namespace {
 
 constexpr char kTag[] = "RicohGrPort";
-constexpr char kGrLmtPath[] = "/odm/etc/camera/basictone/lmt_gr";
 constexpr char kHostLmtPath[] = "/odm/etc/camera/basictone/lmt";
+// GR tone tables, best source first.
+//
+// The first path is the merged tree post-fs-data.sh bind-mounts. It is a *module* mount, so
+// KernelSU's per-app 卸载模块 (and Zygisk Next's denylist, which the 10007 ad-block module turns on
+// at each boot) takes it out of the camera process alone: the 483 report shows the settings app
+// reading the module fine while the camera reports grSc=-1. service.sh therefore keeps the same
+// four directories under the camera's own files, which no mount setting can hide.
+constexpr const char *kGrLmtCandidates[] = {
+    "/odm/etc/camera/basictone/lmt_gr",
+    "/data/user/0/com.oplus.camera/files/jiege/basictone/lmt_gr",
+    "/data/data/com.oplus.camera/files/jiege/basictone/lmt_gr",
+};
 constexpr uint32_t kGrCaptureMode = 37;
 constexpr uint32_t kMasterCaptureMode = 33;
 
@@ -60,6 +73,28 @@ thread_local std::string activeMasterDir;
 bool isGrFrame(void *frame) {
     void *settings = *reinterpret_cast<void **>(static_cast<char *>(frame) + 0x8110);
     return getSettingInt(settings, &kGrSizeKey, 0) == 63;
+}
+
+const char *grLmtDir() {
+    static const char *resolved = nullptr;
+    static time_t lastProbe = 0;
+    // A miss is not cached for the life of the process: service.sh copies the tables after the boot
+    // broadcast, and the camera can well be started before that finishes. Re-probe at most every two
+    // seconds so a burst of frames does not turn into a burst of stat calls.
+    if (resolved == nullptr) {
+        time_t now = time(nullptr);
+        if (lastProbe != 0 && now - lastProbe < 2) return nullptr;
+        lastProbe = now;
+        for (const char *candidate : kGrLmtCandidates) {
+            if (access(candidate, R_OK) == 0) {
+                resolved = candidate;
+                break;
+            }
+        }
+        __android_log_print(ANDROID_LOG_INFO, kTag, "GR tables: %s",
+                            resolved ? resolved : "none readable yet, GR keeps the host LUT");
+    }
+    return resolved;
 }
 
 void getLmtParams(void *parameters, void *frame, int stage) {
@@ -154,8 +189,13 @@ uintptr_t loadLut(void *object, int mode) {
     // Intermediate ODT passes carry no profile; they keep the object's current LUTs.
     if (activeProfile != kUnknown) {
         char *lmtPath = static_cast<char *>(object) + 0x008;  // 256-byte path buffer
-        const char *desired = activeProfile == kGr ? kGrLmtPath
+        const char *desired = activeProfile == kGr ? grLmtDir()
                             : activeProfile == kMaster ? activeMasterDir.c_str() : kHostLmtPath;
+        // No GR tables anywhere: keep the host LUT. Handing BasicTone a directory that does not
+        // exist is what turned "GR is missing its tables" into "the camera hangs on GR" in 483 —
+        // the load never returns and the mode switch waits on it forever. A host-LUT GR frame is
+        // wrong-looking but alive, and the data is one copy away.
+        if (desired == nullptr || desired[0] == '\0') desired = kHostLmtPath;
         if (std::strlen(desired) < 240 && std::strcmp(lmtPath, desired) != 0) {
             std::strcpy(lmtPath, desired);
             // The path is not part of the vendor cache key, so a profile switch forces a reload.
@@ -209,6 +249,10 @@ void hookBasicTone(HookFunction hook, void *handle) {
 
 bool basicToneMasterFrame() {
     return activeMaster;
+}
+
+const char *grLmtDirectory() {
+    return grLmtDir();
 }
 
 void onLibraryLoadedForGr(HookFunction hook, const char *name, void *handle) {

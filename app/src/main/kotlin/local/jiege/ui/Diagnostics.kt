@@ -86,7 +86,7 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
             checks += Check(
                 "KSU 模块",
                 mounted,
-                if (mounted) "滤镜 / GR 数据已挂载" else "数据未挂载，确认 KSU 模块已启用并重启手机",
+                if (mounted) "模块数据可读（合并树或相机私有目录副本）" else "数据未挂载也没有副本，确认 KSU 模块已启用并重启手机",
             )
             val updated = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
             // A process still running hooks from the previous module APK only needs a restart.
@@ -102,7 +102,7 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
                         checks += Check("${label}注入", false, "${label}仍在使用旧版本，点“重启$label”")
                     }
                     !report.getBoolean(DiagnosticsContract.KEY_FILES_MOUNTED, true) ->
-                        checks += Check("${label}注入", false, "${label}里的模块文件被卸载，功能已停用。打开 KernelSU 管理器 → 超级用户 → 右上角菜单勾选“显示系统应用” → $label → 选“自定义” → 关闭“卸载模块”，再点“重启$label”。常见原因：10007 去广告等模块开启了 Zygisk Next 排除列表")
+                        checks += Check("${label}注入", false, "${label}进程里模块数据既没挂载也没有私有目录副本，数据层功能已停用。先点“重启$label”（副本由开机后的 service.sh 补写）；仍不行再看 KernelSU → 超级用户 → 右上角勾选“显示系统应用” → $label → 选“自定义” → 关闭“卸载模块”。常见原因：10007 去广告等模块开启了 Zygisk Next 排除列表")
                     else -> {
                         val missing = report.getInt(DiagnosticsContract.KEY_SYMBOLS_MISSING)
                         val errors = report.getInt(DiagnosticsContract.KEY_ERRORS)
@@ -149,10 +149,19 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
         }
 
         /** The module mounts the data layer (LUTs, basictone) over /odm, so it sits on another device. */
-        private fun moduleMounted(): Boolean = try {
-            Os.stat(Capabilities.MEISHE_LUT).st_dev != Os.stat(Capabilities.ODM_CAMERA).st_dev
-        } catch (_: Exception) {
-            false
+        /**
+         * The module's payload is reachable: either the bind mount over /odm, or the copy service.sh
+         * keeps in the camera's private files. The second one is what survives KernelSU 卸载模块 and
+         * a Zygisk Next denylist, the two ways the mount disappears from an app's namespace — and
+         * reporting those as "KSU 模块异常" was wrong once the copy exists.
+         */
+        private fun moduleMounted(): Boolean {
+            val copied = java.io.File(Capabilities.CAMERA_BASICTONE, "lmt_gr").isDirectory()
+            return try {
+                copied || Os.stat(Capabilities.MEISHE_LUT).st_dev != Os.stat(Capabilities.ODM_CAMERA).st_dev
+            } catch (_: Exception) {
+                copied
+            }
         }
     }
 }

@@ -32,19 +32,48 @@ public final class Capabilities {
     public static final String LMT = ODM_CAMERA + "/basictone/lmt";
     public static final String MEISHE_LUT = ODM_CAMERA + "/meishe_lut";
     public static final String BASICTONE = ODM_CAMERA + "/basictone";
+    /** The merged-tree retro directory. Feature code wants {@link #retroDir()}: this path is only
+     *  reachable when the module's mount survived in the camera process. */
     public static final String RETRO = BASICTONE + "/setting_Retro";
     public static final String DECISION = ODM_CONFIG + "/oplus_camera_preview_decision_config.json";
     public static final String TUNING_JSON = ODM_CAMERA + "/conf_tuning_params.json";
     public static final String UNIT_CONFIG = ODM_CONFIG + "/camera_unit_config";
     /** Config profile staged by service.sh; the native path hooks serve it over the ODM configs. */
     public static final String PROFILE_DIR = "/data/user/0/com.oplus.camera/files/jiege/profile";
-    /** GR tone tables, staged by service.sh and served to the camera through the profile remap. */
-    public static final String GR_LMT = "/odm/etc/camera/basictone/lmt_gr";
+    /** The camera's own private directory; the second copy of the payload lands under it. */
+    public static final String CAMERA_FILES = "/data/user/0/com.oplus.camera/files";
+    /** Where the camera-side copy of the basictone payload lives. */
+    public static final String CAMERA_BASICTONE = CAMERA_FILES + "/jiege/basictone";
+
+    /**
+     * The four directories the POP / GR engines read, best source first.
+     *
+     * <p>The first entry is the merged tree {@code post-fs-data.sh} bind-mounts, and it is the one
+     * every version up to 483 relied on. It is also the one that keeps disappearing: it is a
+     * <em>module</em> mount, so KernelSU's per-app 卸载模块 (or Zygisk Next's denylist, which the
+     * 10007 ad-block module switches on at each boot) removes it from the camera process alone. The
+     * 483 report is exactly that state — the settings app sees the module fine while the camera
+     * reports {@code data=false retro=false grSc=-1} — and no amount of work in the module script can
+     * survive a mount that is not in the process's namespace.
+     *
+     * <p>The second entry is the same four directories copied by {@code service.sh} into the
+     * camera's own private files. App data is not a module mount, so nothing can hide it from the
+     * camera. Same bytes, same module, one extra copy — and it makes the port independent of a
+     * toggle the user should not have to find.
+     */
+    private static final String[] BASICTONE_ROOTS = {
+        BASICTONE,
+        CAMERA_BASICTONE,
+        "/data/data/com.oplus.camera/files/jiege/basictone",
+    };
 
     private static Boolean dataLayer;
     private static Boolean plainDecision;
     private static Boolean unitConfig;
     private static volatile boolean nativeLibrary;
+    private static volatile String dataRoot;
+    private static volatile boolean dataRootProbed;
+    private static volatile long dataRootProbeAt;
 
     private Capabilities() {}
 
@@ -61,7 +90,64 @@ public final class Capabilities {
 
     /** POP and GR need the retro basictone the module stages; absent on GT7 Pro's stock config. */
     public static boolean retro() {
-        return readable(RETRO);
+        return readable(retroDir());
+    }
+
+    /**
+     * The basictone root actually in use: the merged mount if it is in this process's namespace,
+     * otherwise the copy in the camera's private files, otherwise null.
+     *
+     * <p>Probed before any feature installs and logged with the choice, so a report says which
+     * source answered instead of only "data missing". A miss is not cached for the life of the
+     * process: service.sh copies the payload after the boot broadcast, and the camera can be started
+     * before that finishes, so this re-probes (at most every two seconds) until something answers.
+     */
+    public static synchronized String dataRoot() {
+        if (dataRoot != null) return dataRoot;
+        long now = System.nanoTime() / 1000000L;
+        if (dataRootProbed && now - dataRootProbeAt < 2000) return null;
+        dataRootProbed = true;
+        dataRootProbeAt = now;
+        for (String root : BASICTONE_ROOTS) {
+            if (new File(root, "lmt_gr").isDirectory()
+                || new File(root, "pop_port").isDirectory()
+                || new File(root, "setting_Retro").isDirectory()) {
+                dataRoot = root;
+                break;
+            }
+        }
+        return dataRoot;
+    }
+
+    /** A named directory under the basictone root in use, or the merged path when none is usable. */
+    public static String dataPath(String name) {
+        String root = dataRoot();
+        return (root == null ? BASICTONE : root) + "/" + name;
+    }
+
+    /** {@code setting_Retro} — the retro BasicTone's setting directory. */
+    public static String retroDir() {
+        return dataPath("setting_Retro");
+    }
+
+    /** {@code lmt_gr} — the nine GR tone tables and the two LMT tables. */
+    public static String grLmtDir() {
+        return dataPath("lmt_gr");
+    }
+
+    /** {@code pop_port} — POP's Polaroid watermark resources and UI animations. */
+    public static String popRoot() {
+        return dataPath("pop_port");
+    }
+
+    /** {@code mode_limit_watermark} — the IPU master-watermark styles GR draws. */
+    public static String modeLimitDir() {
+        return dataPath("mode_limit_watermark");
+    }
+
+    /** Whether GR has a table directory at all. */
+    public static boolean grLmt() {
+        return new File(grLmtDir()).isDirectory();
     }
 
     /**
@@ -75,7 +161,7 @@ public final class Capabilities {
      * {@code lut_size} and no {@code switch} block at all.
      */
     public static boolean retroSettings() {
-        return readable(RETRO + "/SimTool.ini");
+        return readable(retroDir() + "/SimTool.ini");
     }
 
     /**
@@ -84,7 +170,7 @@ public final class Capabilities {
      * between "the filter works" and "the filter is black" for every style past the first.
      */
     public static int grTables() {
-        File[] entries = new File(GR_LMT).listFiles();
+        File[] entries = new File(grLmtDir()).listFiles();
         if (entries == null) return -1;
         int count = 0;
         for (File entry : entries) {
@@ -100,7 +186,7 @@ public final class Capabilities {
      * is 3145728; 32^3 is 393216.
      */
     public static long grTableBytes() {
-        return new File(GR_LMT + "/SCLut0").length();
+        return new File(grLmtDir() + "/SCLut0").length();
     }
 
     /**
@@ -151,11 +237,31 @@ public final class Capabilities {
 
     /** One line for the settings app's diagnostics page. */
     public static String describe() {
-        return "data=" + dataLayer() + " lmt=" + lmt() + " retro=" + retro()
+        String root = dataRoot();
+        return "data=" + dataLayer() + " root=" + (root == null ? "none"
+                : root.equals(BASICTONE) ? "merged" : "files")
+            + " lmt=" + lmt() + " retro=" + retro()
             + " retroIni=" + retroSettings() + " grSc=" + grTables() + " grScBytes=" + grTableBytes()
             + " profile=" + profileConfig() + " profileModel=" + android.os.Build.MODEL
             + " profileBytes=" + profileSize() + " plainDecision=" + plainDecision()
             + " tuningJson=" + tuningJson() + " native=" + nativeLibrary();
+    }
+
+    /**
+     * Why the data layer is or is not usable, in words a report can act on. The old wording said
+     * "KSU module not mounted" for both a module that never mounted and a module that mounted but is
+     * unmounted inside the camera process, and those two need different fixes.
+     */
+    public static String dataLayerNote() {
+        String root = dataRoot();
+        if (root == null) {
+            return "相机进程看不到模块数据：合并树和私有目录副本都没有。检查 KernelSU 卸载模块 / Zygisk Next 排除列表，"
+                + "并确认 /data/adb/modules 下的模块目录里有 merged/basictone_extra";
+        }
+        if (root.equals(BASICTONE)) {
+            return "模块数据走合并树（post-fs-data.sh 挂载）";
+        }
+        return "模块数据走相机私有目录副本（模块挂载在相机进程里被卸载，service.sh 已补一份）";
     }
 
     /** Size of the staged profile, so a report shows whether it is the file that was built. */

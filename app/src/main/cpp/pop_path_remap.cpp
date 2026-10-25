@@ -9,9 +9,10 @@
 #include "native_hooks.h"
 
 // POP port, native half: reads of the ODM Meishe LUT paths are served from the master filters the
-// user imported (files/jiege/lut, see MasterFilterSync). The POP retro settings are NOT redirected
-// any more — post-fs-data.sh stages setting_Retro into the merged basictone tree, which is the path
-// the engine opens anyway, so the redirect has nothing to point at and falls through.
+// user imported (files/jiege/lut, see MasterFilterSync). The retro settings are normally read from
+// the merged basictone tree post-fs-data.sh builds, but that tree is a module mount and KernelSU can
+// unmount it for the camera process alone; service.sh therefore keeps a copy under
+// files/jiege/basictone, and this remap falls through to it when the merged path is not there.
 // The same hooks serve the natural photo mode's tuning json (natural_mode.cpp).
 static int (*originalOpenat)(int, const char *, int, ...);
 static int (*originalFaccessat)(int, const char *, int, int);
@@ -23,7 +24,8 @@ static int (*originalOpen2)(const char *, int);
 static int (*originalOpen)(const char *, int, ...);
 
 static constexpr char kOdmRetro[] = "/odm/etc/camera/basictone/setting_Retro";
-static constexpr char kAppRetro[] = "/data/user/0/com.oplus.camera/files/pop_port/setting_Retro";
+// Camera-private copy of the merged basictone tree (service.sh, run by boot-completed.sh).
+static constexpr char kAppRetro[] = "/data/user/0/com.oplus.camera/files/jiege/basictone/setting_Retro";
 static constexpr char kOdmLut[] = "/odm/etc/camera/meishe_lut/";
 static constexpr char kAppLut[] = "/data/user/0/com.oplus.camera/files/pop_port/meishe_lut/";
 // Master filters the user imported in the settings app (MasterFilterSync copies them here).

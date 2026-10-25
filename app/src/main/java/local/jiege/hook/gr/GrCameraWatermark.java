@@ -17,6 +17,7 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import java.io.File;
 import java.io.FileInputStream;
+import local.jiege.hook.common.Capabilities;
 import local.jiege.hook.common.DataStore;
 import local.jiege.hook.common.Log;
 import local.jiege.hook.common.Reflection;
@@ -33,7 +34,6 @@ import org.json.JSONObject;
  */
 final class GrCameraWatermark {
     private static final String TAG = "RicohGrPort";
-    private static final String MODE_LIMIT_DIR = "/odm/etc/camera/basictone/mode_limit_watermark";
     private static final String GALLERY_STYLE_DIR = "/data/user/0/com.coloros.gallery3d/files/ricoh_gr_styles";
     // Local font directories: the camera's own downloads, then gallery fonts staged by service.sh.
     private static final String[] FONT_DIRS = {
@@ -211,10 +211,12 @@ final class GrCameraWatermark {
                     @Override protected void afterHookedMethod(MethodHookParam param) {
                         if (!GrState.isGrMode() && !"gr".equals(param.args[0])) return;
                         String style = styleFor(param.getResult(), symbols, classLoader);
-                        File json = new File(MODE_LIMIT_DIR + "/" + style + "/" + style + ".json");
-                        if (!json.isFile()) json = new File(MODE_LIMIT_DIR + "/" + style + ".json");
+                        String styles = Capabilities.modeLimitDir();
+                        File json = new File(styles + "/" + style + "/" + style + ".json");
+                        if (!json.isFile()) json = new File(styles + "/" + style + ".json");
                         if (!json.isFile()) {
-                            Log.i(TAG, "GR watermark style missing, keeping stock result: " + style);
+                            Log.i(TAG, "GR watermark style missing under " + styles
+                                + ", keeping stock result: " + style);
                             return;
                         }
                         try {
@@ -363,7 +365,8 @@ final class GrCameraWatermark {
 
     private static Bitmap decodeLogo(String name) {
         String file = name.endsWith(".webp") ? name : name + ".webp";
-        for (String directory : new String[] {MODE_LIMIT_DIR, MODE_LIMIT_DIR + "/" + DEFAULT_STYLE, GALLERY_STYLE_DIR}) {
+        String styles = Capabilities.modeLimitDir();
+        for (String directory : new String[] {styles, styles + "/" + DEFAULT_STYLE, GALLERY_STYLE_DIR}) {
             File candidate = new File(directory, file);
             if (candidate.isFile()) return BitmapFactory.decodeFile(candidate.getAbsolutePath());
         }

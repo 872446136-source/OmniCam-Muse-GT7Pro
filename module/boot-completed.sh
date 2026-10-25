@@ -7,10 +7,11 @@
 # itself; the 482 report still showed grSc=-1 and "pop_port is absent", so that copy did not survive
 # either. This stage does not need to guess: by the time it runs the unlock has already happened.
 #
-# The camera-side data (POP resources, GR tone tables, GR watermark styles) does NOT depend on this:
-# post-fs-data.sh stages it into the merged basictone tree. What is left here is the master-colour
-# tables, the gallery watermark styles and the gallery's feature switch, which only exist inside the
-# two apps' private directories.
+# The camera-side data used to not depend on this: post-fs-data.sh stages it into the merged
+# basictone tree. Since 484 it does — that tree is a module mount and KernelSU can unmount it for the
+# camera process alone (the 483 report), so service.sh copies the same four directories into the
+# camera's own files here, where no mount setting reaches them. This stage is now the one that makes
+# POP and GR work on a device with 卸载模块 / a Zygisk Next denylist.
 #
 # KernelSU only runs this if the installed version supports the boot-completed stage. If it does not,
 # nothing breaks: service.sh's detached --wait copy is still there as a fallback.

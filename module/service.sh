@@ -13,14 +13,33 @@
 # Kill switch: touch /data/adb/omnicam_off, then reboot.
 
 MODDIR=${0%/*}
+APP=/data/user/0/com.oplus.camera
+GALLERY=/data/user/0/com.coloros.gallery3d
+
+case "${1:-}" in
+--wait)
+    # Detached pass, started below when the camera's data directory is not up yet.
+    #
+    # /data/user/0/<pkg> only appears once the user unlocks: this device is file-based encrypted
+    # (ro.crypto.type=file) and KernelSU runs service.sh at late_start, which on a locked boot is
+    # well before that. 481 and every version before it waited 120 seconds, gave up, and exited —
+    # silently, because there was nothing to log to. That is why files/pop_port never existed and
+    # every report said "service.sh did not reach the POP block", and it is why files/ricoh_gr/lmt
+    # was never built either.
+    N=0
+    while [ ! -d "$APP" ] && [ "$N" -lt 720 ]; do
+        sleep 10
+        N=$((N + 1))
+    done
+    [ -d "$APP" ] || exit 0
+    ;;
+esac
 
 for OFF in /data/adb/omnicam_off /data/adb/omnicam_nostack_off /data/adb/omnicam_fullport_off; do
     [ -f "$OFF" ] && exit 0
 done
 
 PAYLOAD=$MODDIR/payload
-APP=/data/user/0/com.oplus.camera
-GALLERY=/data/user/0/com.coloros.gallery3d
 GR_AVAILABLE='0.6(14),1(23),2(47),3(70),6(139),10(230)'
 GR_MARKED='1.2173913(28),1.7391304(40)'
 
@@ -36,7 +55,16 @@ wait_for() {
     [ -d "$DIR" ]
 }
 
-wait_for "$APP" 120 || exit 0
+if ! wait_for "$APP" 60; then
+    # Not installed at all, or still locked. Do not give up: hand the whole staging run to a detached
+    # copy of this script that keeps waiting for the unlock. Nothing here blocks the boot.
+    if command -v setsid > /dev/null 2>&1; then
+        setsid sh "$MODDIR/service.sh" --wait > /dev/null 2>&1 &
+    else
+        (sh "$MODDIR/service.sh" --wait > /dev/null 2>&1) &
+    fi
+    exit 0
+fi
 
 APP_UID=$(stat -c %u "$APP")
 PREF_DIR=$APP/shared_prefs
@@ -86,34 +114,47 @@ chmod 0660 "$PREF_FILE"
 # and before the first unlock it cannot write there at all. Nothing is mounted either way — the
 # native path hooks serve the copy to the camera process only, so /odm stays untouched.
 
-# GR profile: the device's own LMT tree with the GR adjustment tables (SC16/SC32/CWCM) swapped in.
-# Every other entry is copied from /odm as-is, so the profile stays valid for this sensor set.
-if [ -d "$PAYLOAD/gr_adjustment_lmt" ] && [ -d /odm/etc/camera/basictone/lmt ]; then
+# GR profile: the device's own LMT tree, then the GR tone tables on top as SCLut0..8.
+#
+# 481 skipped every SCLut* here and copied nothing from the payload, because the loop is driven by
+# what /odm holds and this device has no SC16/SC32/CWCM file at all — those names only ever existed
+# in the payload. The profile therefore contained LMTLut0 and LMTLut1 and nothing else, and
+# libBasicTonePhoto reads a table it cannot find as an empty one: the merge then runs on zeros, which
+# is a black viewfinder and a green frame. GR's first style was the only one that needed no SCLut,
+# which is exactly the "only the standard filter works" report.
+#
+# The tables have to be 64^3, not the payload's 32^3: libBasicTonePhoto.so takes the grid size from
+# SimTool.ini (this firmware says lut_size = 64) and then reads a file of that size, so a 32^3 file
+# is read as a quarter of a table and the rest of the bytes land in the next channel. tools/gr_lmt.py
+# resamples at build time; the payload only ships the 32^3 originals.
+if [ -d /odm/etc/camera/basictone/lmt ]; then
     OUT=$APP/files/ricoh_gr/lmt
     mkdir -p "$OUT"
     chown "$APP_UID:$APP_UID" "$APP/files"
     chmod 0770 "$APP/files"
     for ORIGINAL in /odm/etc/camera/basictone/lmt/*; do
         NAME=${ORIGINAL##*/}
-        case "$NAME" in
-            LMTPhotoLut*|SCLut*)
-                # Palette LUTs stay in the shared ODM tree; GR uses its own profile.
-                continue
-                ;;
-            SC16*|SC32*|CWCM*)
-                [ -f "$PAYLOAD/gr_adjustment_lmt/$NAME" ] && cp "$PAYLOAD/gr_adjustment_lmt/$NAME" "$OUT/$NAME"
-                ;;
-            *)
-                if [ -L "$OUT/$NAME" ]; then rm "$OUT/$NAME"; fi
-                if [ -d "$ORIGINAL" ]; then
-                    mkdir -p "$OUT/$NAME"
-                    cp -R "$ORIGINAL/." "$OUT/$NAME/"
-                else
-                    cp "$ORIGINAL" "$OUT/$NAME"
-                fi
-                ;;
-        esac
+        if [ -L "$OUT/$NAME" ]; then rm "$OUT/$NAME"; fi
+        if [ -d "$ORIGINAL" ]; then
+            mkdir -p "$OUT/$NAME"
+            cp -R "$ORIGINAL/." "$OUT/$NAME/"
+        else
+            cp "$ORIGINAL" "$OUT/$NAME"
+        fi
     done
+    if [ -f /data/adb/omnicam_grsc_off ]; then
+        # Escape hatch: keep the device's own SCLut0..8 instead of the GR tone curves. The profile
+        # still holds a complete, correctly sized tree, so GR stays usable — it just looks like the
+        # normal photo path instead of a film simulation.
+        echo "GR tone tables skipped, /data/adb/omnicam_grsc_off is present"
+    elif [ -d "$PAYLOAD/gr_lmt64" ]; then
+        for SRC in "$PAYLOAD/gr_lmt64"/*; do
+            [ -f "$SRC" ] || continue
+            NAME=${SRC##*/}
+            rm -f "$OUT/$NAME"
+            cp "$SRC" "$OUT/$NAME"
+        done
+    fi
     chown -R "$APP_UID:$APP_UID" "$APP/files/ricoh_gr"
 fi
 

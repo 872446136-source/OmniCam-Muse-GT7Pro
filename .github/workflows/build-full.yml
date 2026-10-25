@@ -81,6 +81,23 @@ jobs:
           # both filters black. Rewrite them as version 1 / 32^3 with a trilinear resample.
           python3 tools/mslut.py fix module/payload/meishe_lut
           python3 tools/mslut.py info module/payload/meishe_lut/qing_tou.bin module/payload/meishe_lut/hu_po.bin
+
+          # The retro BasicTone opens "<setting dir>/SimTool.ini" — that exact name is the only one
+          # libBasicTonePhoto.so knows ("%s/SimTool.ini"). Upstream's payload ships SimTool_Master.ini
+          # and SimTool_Photo_Master.ini instead, so the retro path found no settings at all and came
+          # up on a black viewfinder. This is the device's own setting/SimTool.ini, unmodified, so the
+          # grid size and the switch block match what this firmware's library was built for.
+          cp tools/setting_retro/SimTool.ini module/payload/setting_Retro/SimTool.ini
+          cmp tools/setting_retro/SimTool.ini module/payload/setting_Retro/SimTool.ini
+
+          # GR tone tables at the grid size this firmware reads (64^3). The payload's originals are
+          # 32^3 and BasicTone takes the size from SimTool.ini, so a 32^3 file is read as a quarter of
+          # a table; a table it cannot find at all becomes zeros. Both are a black preview and a green
+          # frame. service.sh copies gr_lmt64 over the device's own SCLut0..8.
+          python3 tools/gr_lmt.py module/payload/gr_adjustment_lmt module/payload/gr_lmt64 --size 64
+          rm -rf module/payload/gr_adjustment_lmt
+          ls -l module/payload/gr_lmt64 | head -4
+          test "$(ls module/payload/gr_lmt64 | wc -l)" = 9
           du -sh module/payload/*
 
       - name: Gradle
@@ -123,7 +140,7 @@ jobs:
             exit 1
           fi
           unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c . || true
-          for DIR in meishe_lut x10_basictone setting_Retro gr_adjustment_lmt master_color \
+          for DIR in meishe_lut x10_basictone setting_Retro gr_lmt64 master_color \
                      watermark_master_styles watermark_drawables ipu pld_watermark apk_resources; do
             printf '%s %s\n' "$DIR" "$(unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c "payload/$DIR/")"
           done
@@ -131,6 +148,10 @@ jobs:
           # missing" line in the module log and a retro UI with nothing to draw.
           unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -q "payload/pld_watermark/pld/pld.json"
           unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -q "payload/apk_resources/json/"
+          # Without SimTool.ini under this exact name the retro BasicTone finds no settings and the
+          # viewfinder stays black; without nine 64^3 tables every GR style past the first does too.
+          unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -q "payload/setting_Retro/SimTool.ini"
+          test "$(unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c 'payload/gr_lmt64/SCLut')" = 9
           du -h OmniCam-Muse-GT7Pro-KSU.zip OmniCam-Muse-GT7Pro.apk
 
       - name: Publish

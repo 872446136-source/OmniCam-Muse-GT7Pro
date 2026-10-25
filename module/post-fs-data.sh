@@ -89,10 +89,34 @@ BT_EXTRA=$MODDIR/merged/basictone_extra
 rm -rf "$BT_EXTRA"
 mkdir -p "$BT_EXTRA"
 [ -d "$MODDIR/payload/x10_basictone" ] && cp -a "$MODDIR/payload/x10_basictone"/. "$BT_EXTRA"/
+# setting_Retro: this firmware has no such directory at all — /odm/etc/camera/basictone holds only
+# lmt / odt / setting / setting_dolby / vig — and the retro BasicTone opens exactly
+# "<setting dir>/SimTool.ini" ("%s/SimTool.ini" is the only ini name in libBasicTonePhoto.so, and
+# libAlgoInterface.so points that "%s" at ".../basictone/setting_Retro").
+#
+# 481 created the directory but filled it with upstream's SimTool_Master.ini and
+# SimTool_Photo_Master.ini. Neither name exists as a string in this firmware's library — they belong
+# to the X9 Ultra build, which composes "SimTool_%s.ini" — so the retro path found no lut_size and no
+# switch block and rendered a black viewfinder.
+#
+# So give it the device's own setting/ tree (SimTool.ini, Ditherout/, FromXml/ — the library also
+# has readLMTXML in it) and then let the payload override on top. Nothing here is invented: it is
+# the same file the stock photo path runs.
+mkdir -p "$BT_EXTRA/setting_Retro"
+if [ -d /odm/etc/camera/basictone/setting ]; then
+    cp -a /odm/etc/camera/basictone/setting/. "$BT_EXTRA/setting_Retro"/
+fi
 if [ -d "$MODDIR/payload/setting_Retro" ]; then
-    mkdir -p "$BT_EXTRA/setting_Retro"
     cp -a "$MODDIR/payload/setting_Retro"/. "$BT_EXTRA/setting_Retro"/
 fi
+if [ -f "$BT_EXTRA/setting_Retro/SimTool.ini" ]; then
+    log "setting_Retro staged: $(ls "$BT_EXTRA/setting_Retro" | wc -l) entries, SimTool.ini $(wc -c < "$BT_EXTRA/setting_Retro/SimTool.ini") bytes"
+else
+    log "setting_Retro has no SimTool.ini, the retro viewfinder will stay black"
+fi
+# The GR tone tables are NOT staged here: they go into the app's own data directory from
+# service.sh (files/ricoh_gr/lmt), because the camera process reads them through the profile
+# remap and a second copy under /odm would only cost another 28 MB.
 bind_merged_dir /odm/etc/camera/basictone "$BT_EXTRA" \
     "$MODDIR/merged/basictone" /odm/etc/camera/basictone
 

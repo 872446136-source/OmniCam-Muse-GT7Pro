@@ -38,6 +38,8 @@ public final class Capabilities {
     public static final String UNIT_CONFIG = ODM_CONFIG + "/camera_unit_config";
     /** Config profile staged by service.sh; the native path hooks serve it over the ODM configs. */
     public static final String PROFILE_DIR = "/data/user/0/com.oplus.camera/files/jiege/profile";
+    /** GR tone tables, staged by service.sh and served to the camera through the profile remap. */
+    public static final String GR_LMT = "/data/user/0/com.oplus.camera/files/ricoh_gr/lmt";
 
     private static Boolean dataLayer;
     private static Boolean plainDecision;
@@ -60,6 +62,45 @@ public final class Capabilities {
     /** POP and GR need the retro basictone the module stages; absent on GT7 Pro's stock config. */
     public static boolean retro() {
         return readable(RETRO);
+    }
+
+    /**
+     * Whether the retro directory actually carries the settings file the engine opens.
+     *
+     * <p>{@link #retro()} only says the directory exists, and that was the trap in 481: the module
+     * created {@code setting_Retro/} and filled it with upstream's {@code SimTool_Master.ini} and
+     * {@code SimTool_Photo_Master.ini}, so the probe reported {@code retro=true} while POP rendered a
+     * black viewfinder. This firmware's {@code libBasicTonePhoto.so} has exactly one ini name in it,
+     * {@code "%s/SimTool.ini"}, so a directory without that file is a directory with no
+     * {@code lut_size} and no {@code switch} block at all.
+     */
+    public static boolean retroSettings() {
+        return readable(RETRO + "/SimTool.ini");
+    }
+
+    /**
+     * How many {@code SCLut*} tables GR has staged. BasicTone reads a table it cannot find as a zero
+     * table, and a zero table is a black preview and a green frame, so this number is the difference
+     * between "the filter works" and "the filter is black" for every style past the first.
+     */
+    public static int grTables() {
+        File[] entries = new File(GR_LMT).listFiles();
+        if (entries == null) return -1;
+        int count = 0;
+        for (File entry : entries) {
+            if (entry.isFile() && entry.getName().startsWith("SCLut")) count++;
+        }
+        return count;
+    }
+
+    /**
+     * Bytes in the first GR tone table. The engine takes the grid size from {@code SimTool.ini}
+     * ({@code lut_size = 64} here) and then reads a file of that size, so a 32^3 table in a 64^3 slot
+     * is a quarter of a table and the rest of the bytes land in the next channel. 64^3 float32 RGB
+     * is 3145728; 32^3 is 393216.
+     */
+    public static long grTableBytes() {
+        return new File(GR_LMT + "/SCLut0").length();
     }
 
     /**
@@ -111,6 +152,7 @@ public final class Capabilities {
     /** One line for the settings app's diagnostics page. */
     public static String describe() {
         return "data=" + dataLayer() + " lmt=" + lmt() + " retro=" + retro()
+            + " retroIni=" + retroSettings() + " grSc=" + grTables() + " grScBytes=" + grTableBytes()
             + " profile=" + profileConfig() + " profileModel=" + android.os.Build.MODEL
             + " profileBytes=" + profileSize() + " plainDecision=" + plainDecision()
             + " tuningJson=" + tuningJson() + " native=" + nativeLibrary();

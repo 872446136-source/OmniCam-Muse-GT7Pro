@@ -55,6 +55,12 @@ public final class CameraLogMirror {
         "CaptureProcessor", "CameraCore", "OneCameraImpl", "CaptureParam", "OutCaptureManager",
         "CaptureFail", "CommonCapMode", "CaptureDefer", "ModeManager", "MainShutterButton",
         "RetroCameraUIContainer", "CameraUIManager", "CaptureRequest", "BaseMode",
+        // 476: the two modes whose capture is still unaccounted for. GRCapMode is written by the
+        // class that owns the GR shutter handler, so its absence from a report after a press means
+        // the mode class was never the active one — a different failure from "the handler ran and
+        // the capture was refused further down", and the one thing 473 could not tell apart.
+        "GRCapMode", "GRViewManager", "GREffectMenu", "RetroCameraMode", "RetroCamFilterUIContainer",
+        "HighPixelMode", "MoviePresenter",
     };
 
     private static final AtomicInteger LINES = new AtomicInteger();

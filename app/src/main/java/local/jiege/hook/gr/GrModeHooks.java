@@ -156,8 +156,14 @@ final class GrModeHooks {
         XposedBridge.hookMethod(target, new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
                 if (!grMode.isInstance(param.thisObject)) return;
-                if (Boolean.TRUE.equals(param.getResult())) return;
-                if (new File(SHUTTER_OFF).exists()) return;
+                if (Boolean.TRUE.equals(param.getResult())) {
+                    Log.i(TAG, "touch-down capture asked, answered true");
+                    return;
+                }
+                if (new File(SHUTTER_OFF).exists()) {
+                    Log.i(TAG, "touch-down capture asked, answered false, left alone (" + SHUTTER_OFF + ")");
+                    return;
+                }
                 param.setResult(Boolean.TRUE);
                 Log.i(TAG, "touch-down capture answered true: stock said false, so the shutter only "
                     + "registered a callback and never called BaseMode.ij(0)");

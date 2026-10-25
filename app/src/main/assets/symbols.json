@@ -2253,6 +2253,16 @@
       "strings": [
         "capture, checkStateBeforeCapture true, so return"
       ]
+    },
+    "FeaturePresenter.stage": {
+      "kind": "method",
+      "in": "@FeaturePresenter",
+      "params": [
+        "int",
+        "android.os.Bundle",
+        "boolean"
+      ],
+      "ret": "void"
     }
   },
   "gallery": {

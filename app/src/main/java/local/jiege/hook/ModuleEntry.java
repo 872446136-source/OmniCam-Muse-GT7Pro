@@ -16,6 +16,7 @@ import local.jiege.hook.gallery.AddressNavigation;
 import local.jiege.hook.gallery.BatchWatermark;
 import local.jiege.hook.gallery.WatermarkSeriesUnlock;
 import local.jiege.hook.gr.GrPort;
+import local.jiege.hook.guard.PresenterGuard;
 import local.jiege.hook.highpixel.HighPixel200mFace;
 import local.jiege.hook.highpixel.HighPixelEffects;
 import local.jiege.hook.launch.KeyLaunchMode;
@@ -121,6 +122,10 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
             GlGuard.installCamera(classLoader);
             // GR: the press is delivered but nothing follows. This says whether it becomes an event.
             ShutterDispatch.installCamera(classLoader);
+            // 480 died of one feature presenter that could not construct: the exception went up
+            // through FeatureManager's loop and out of the main looper. This keeps that to one
+            // feature's init instead of the process.
+            PresenterGuard.installCamera(classLoader);
             ModeDataReset.ensure(param.appInfo != null && param.appInfo.dataDir != null
                 ? param.appInfo.dataDir : "/data/user/0/" + CAMERA);
         }

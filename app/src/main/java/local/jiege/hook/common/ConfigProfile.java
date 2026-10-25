@@ -29,7 +29,19 @@ import java.io.OutputStream;
 public final class ConfigProfile {
     private static final String TAG = "ConfigProfile";
     private static final String ASSET_ROOT = "assets/profile/";
-    private static final String NAME = "camera_unit_config";
+
+    /**
+     * The files a profile may carry. Only {@code camera_unit_config} is shipped: it is plain JSON, so
+     * a profile can be built and reviewed off-device. {@code oplus_camera_config} is encrypted with a
+     * key derived from the device's own {@code libOplusSecurity.so} and wrapped in a 4-byte envelope
+     * whose tail does not survive a change in payload length, so the switch board is answered in
+     * {@code ModeGates} instead of being shipped as a file. The name is still listed because
+     * {@code profile_config.cpp} serves whatever is staged, and a future build may want it.
+     */
+    private static final String[] NAMES = {
+        "camera_unit_config",
+        "oplus_camera_config",
+    };
 
     private ConfigProfile() {}
 
@@ -38,32 +50,41 @@ public final class ConfigProfile {
         String process = currentProcess();
         if (process == null || !process.startsWith("com.oplus.camera")) return false;
         try {
-            byte[] profile = asset(appClassLoader);
-            if (profile == null) {
-                Log.i(TAG, "no profile asset for model " + Build.MODEL + ", stock config used");
-                return false;
-            }
             File dir = new File(Capabilities.PROFILE_DIR);
-            if (!dir.isDirectory() && !dir.mkdirs()) {
-                Log.e(TAG, "cannot create " + dir);
-                return false;
-            }
-            File target = new File(dir, NAME);
-            if (target.length() != profile.length || !sameStart(target, profile)) {
-                File temporary = new File(dir, NAME + ".tmp");
-                try (OutputStream out = new FileOutputStream(temporary)) {
-                    out.write(profile);
+            boolean staged = false;
+            boolean complete = true;
+            for (String name : NAMES) {
+                byte[] profile = asset(appClassLoader, name);
+                if (profile == null) {
+                    // A profile only ships the files it patches; a missing one falls through to stock.
+                    continue;
                 }
-                if (!temporary.renameTo(target)) {
-                    temporary.delete();
-                    Log.e(TAG, "cannot publish " + target);
+                if (!dir.isDirectory() && !dir.mkdirs()) {
+                    Log.e(TAG, "cannot create " + dir);
                     return false;
                 }
-                Log.i(TAG, "profile staged: " + profile.length + " bytes for " + Build.MODEL);
+                File target = new File(dir, name);
+                if (target.length() != profile.length || !sameStart(target, profile)) {
+                    File temporary = new File(dir, name + ".tmp");
+                    try (OutputStream out = new FileOutputStream(temporary)) {
+                        out.write(profile);
+                    }
+                    if (!temporary.renameTo(target)) {
+                        temporary.delete();
+                        Log.e(TAG, "cannot publish " + target);
+                        complete = false;
+                        continue;
+                    }
+                    staged = true;
+                    Log.i(TAG, "profile staged: " + name + ", " + profile.length + " bytes for "
+                        + Build.MODEL);
+                }
+                if (!target.isFile()) complete = false;
             }
+            if (!staged) Log.i(TAG, "profile already current for " + Build.MODEL);
             File marker = new File(dir, "enabled");
             if (!marker.isFile()) marker.createNewFile();
-            return marker.isFile() && target.isFile();
+            return complete && marker.isFile();
         } catch (Throwable error) {
             Log.e(TAG, "profile staging failed", error);
             return false;
@@ -78,10 +99,10 @@ public final class ConfigProfile {
      * PathClassLoader, so assets/ is reachable as a resource; the app's loader is tried as well in
      * case that ever changes.
      */
-    private static byte[] asset(ClassLoader appClassLoader) {
+    private static byte[] asset(ClassLoader appClassLoader, String file) {
         String[] names = {
-            ASSET_ROOT + Build.MODEL + "/" + NAME,
-            ASSET_ROOT + NAME,
+            ASSET_ROOT + Build.MODEL + "/" + file,
+            ASSET_ROOT + file,
         };
         ClassLoader[] loaders = {ConfigProfile.class.getClassLoader(), appClassLoader};
         for (ClassLoader loader : loaders) {

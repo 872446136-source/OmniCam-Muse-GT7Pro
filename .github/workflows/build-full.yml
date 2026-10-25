@@ -108,6 +108,8 @@ jobs:
           # The config profile is staged by the camera process from this asset; without it every mode
           # the profile adds stays hidden.
           unzip -l OmniCam-Muse-GT7Pro.apk | grep "assets/profile/.*/camera_unit_config"
+          # The mode table has to carry the two pages merged in 475, or the merge did nothing.
+          unzip -p OmniCam-Muse-GT7Pro.apk "assets/profile/RMX5010/camera_unit_config" | grep -c "movie_mode"
 
       - name: Package the KernelSU module
         run: |

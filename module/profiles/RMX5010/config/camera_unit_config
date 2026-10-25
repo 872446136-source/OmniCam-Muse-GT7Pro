@@ -24,7 +24,9 @@
       "slowvideo_mode",
       "long_exposure_mode",
       "under_water_mode",
-      "tilt_shift_mode"
+      "tilt_shift_mode",
+      "movie_mode",
+      "high_pixel_mode"
     ],
     "rear_main": [
       "video_mode",
@@ -45,7 +47,9 @@
       "long_exposure_mode",
       "high_definition_mode",
       "under_water_mode",
-      "tilt_shift_mode"
+      "tilt_shift_mode",
+      "movie_mode",
+      "high_pixel_mode"
     ],
     "rear_tele": [
       "video_mode",
@@ -58,7 +62,9 @@
       "street_mode",
       "high_definition_mode",
       "under_water_mode",
-      "tilt_shift_mode"
+      "tilt_shift_mode",
+      "movie_mode",
+      "high_pixel_mode"
     ],
     "front_main": [
       "video_mode",
@@ -82,7 +88,9 @@
       "under_water_mode",
       "tilt_shift_mode",
       "gr_mode",
-      "retro_camera_mode"
+      "retro_camera_mode",
+      "movie_mode",
+      "high_pixel_mode"
     ],
     "rear_portrait": [
       "portrait_mode"
@@ -157,6 +165,16 @@
       "ai_50m": {
         "on": "80af"
       }
+    },
+    "movie_mode": {
+      "stabilization": {
+        "video_stabilization": "80a4"
+      }
+    },
+    "high_pixel_mode": {
+      "aiHighPixel": {
+        "on": "8001"
+      }
     }
   },
   "mode_operation_mode": {
@@ -175,7 +193,7 @@
     "microscope_capture_mode": "8001",
     "microscope_video_mode": "800b",
     "macro_mode": "80A6",
-    "master_video_mode": "80A3",
+    "master_video_mode": "800b",
     "under_water_mode": "8001",
     "high_definition_mode": "8001",
     "star_capture_mode": "80A8",
@@ -187,7 +205,9 @@
     "tilt_Shift_fastvideo_mode": "800C",
     "xpan_mode": "80AC",
     "gr_mode": "8009",
-    "retro_camera_mode": "8001"
+    "retro_camera_mode": "8001",
+    "movie_mode": "80A3",
+    "high_pixel_mode": "8001"
   },
   "usecase_info": {
     "sat_photo_case": [

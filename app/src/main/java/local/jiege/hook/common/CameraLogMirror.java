@@ -44,6 +44,10 @@ public final class CameraLogMirror {
         // "Camera Mode Change Start, next mode: …", "checkToSwitchMode, the device is not support
         // the mode:…", and the database rows behind both.
         "ModeSwitcher", "DataBaseOperator", "CameraControlUI", "HeadlineHelper",
+        // The pages 475 turns on, so a report says whether they were reached and where they stopped:
+        // the log video session and its LUT monitor, the film mode, and the 50 MP page.
+        "LogVideoPresenter", "LogLutMenuView", "LogVideoMenu", "MasterVideo", "HighPixel",
+        "MovieMode", "Xpan",
     };
 
     /** Tags mirrored up to {@link #LIMIT}: what happens to a capture request after the click. */

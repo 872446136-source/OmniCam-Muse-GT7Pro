@@ -46,7 +46,11 @@ public final class ModeProbe {
     private static final String MODE_INFO = "ja.a";
     private static final String PREFIX = "com.oplus.camera.";
     private static final String DB = "/data/user/0/com.oplus.camera/databases/mode_data.db";
-    private static final String[] WANTED = {"gr", "retroCamera", "professional"};
+    private static final String[] WANTED = {
+        "gr", "retroCamera", "professional",
+        // 475: the two pages merged from the B6 port, plus XPAN, which is now seeded into the panel.
+        "movie", "highPixel", "xpan",
+    };
     private static final long[] DUMP_AT_MS = {8000L, 20000L};
     private static final int DUMP_LIMIT = 48;
     private static final AtomicBoolean dumped = new AtomicBoolean();

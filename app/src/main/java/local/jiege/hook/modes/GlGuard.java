@@ -5,6 +5,7 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import java.io.File;
 import java.lang.reflect.Method;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import local.jiege.hook.common.Log;
 
@@ -46,6 +47,13 @@ import local.jiege.hook.common.Log;
  * few and then one in two hundred — because a per-frame log would itself be a reason for the camera
  * to stall.
  *
+ * <p>477 proved the swallow works and showed what it costs: the mask threw on every one of the
+ * first five frames after POP finished switching in, and a caught throwable still fills in a stack
+ * trace on the GL thread sixty times a second. It also turned the report red — those five lines are
+ * the "相机注入：5 条错误" the settings app counted. 478 stops calling it: once the shader program
+ * has been absent for {@link #BROKEN_AFTER} consecutive frames it is absent for the life of this
+ * process, so the draw is skipped without an exception and without a log line.
+ *
  * <p>Class names. {@code com.oplus.camera.common.gl.*} is a short-name package whose members get
  * reshuffled between camera builds (7.013.40 turned {@code gl.o} into {@code gl.p} and made
  * {@code gl.o} something else entirely), so the canvas is found by shape among a few candidates
@@ -84,9 +92,13 @@ public final class GlGuard {
 
     private static final int FIRST_LOGS = 5;
     private static final int EVERY = 200;
+    /** Consecutive failures before the mask draw is written off for this process. */
+    private static final int BROKEN_AFTER = 3;
 
     private static final AtomicInteger MASK_FAILURES = new AtomicInteger();
     private static final AtomicInteger FRAME_FAILURES = new AtomicInteger();
+    private static final AtomicInteger MASK_STREAK = new AtomicInteger();
+    private static final AtomicBoolean MASK_BROKEN = new AtomicBoolean();
 
     private static boolean installed;
 
@@ -185,10 +197,22 @@ public final class GlGuard {
             try {
                 XposedBridge.hookMethod(draw, new XC_MethodHook() {
                     @Override protected void beforeHookedMethod(MethodHookParam param) {
+                        if (MASK_BROKEN.get()) {
+                            // The shader program this draws with is not created in this process.
+                            // Retrying would throw on every frame; skip silently instead.
+                            param.setResult(null);
+                            return;
+                        }
                         try {
                             XposedBridge.invokeOriginalMethod(param.method, param.thisObject, param.args);
+                            MASK_STREAK.set(0);
                         } catch (Throwable error) {
                             note(MASK_FAILURES, "inverse-mask overlay skipped", error);
+                            if (MASK_STREAK.incrementAndGet() >= BROKEN_AFTER) {
+                                MASK_BROKEN.set(true);
+                                Log.i(TAG, "inverse-mask overlay disabled for this process: the"
+                                    + " shader program is absent, so every frame would throw");
+                            }
                         }
                         param.setResult(null);
                     }
@@ -206,10 +230,14 @@ public final class GlGuard {
     /**
      * Logs the first few failures and then one in {@link #EVERY}: a draw path that throws on every
      * frame would otherwise write sixty lines a second and stall the camera on its own log.
+     *
+     * <p>Info, not error: the missing shader program is normal in a POP session on this device, and
+     * the settings app turns every {@code E} line into "相机注入：N 条错误". An expected condition
+     * must not be counted as a failed injection.
      */
     private static void note(AtomicInteger counter, String message, Throwable error) {
         int count = counter.incrementAndGet();
         if (count > FIRST_LOGS && count % EVERY != 0) return;
-        Log.e(TAG, message + " (" + count + ")", error);
+        Log.i(TAG, message + " (" + count + ")", error);
     }
 }

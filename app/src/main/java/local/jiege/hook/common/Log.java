@@ -25,6 +25,16 @@ public final class Log {
     }
 
     /**
+     * An expected throwable, with its stack: the settings app counts {@link #e} lines as injection
+     * errors, so a condition that is normal on this device must not be logged as one.
+     */
+    public static void i(String tag, String message, Throwable error) {
+        String line = tag + ": " + message + " " + error;
+        XposedBridge.log(line);
+        Diagnostics.record("I", line + "\n" + android.util.Log.getStackTraceString(error));
+    }
+
+    /**
      * Runs one hook installer. A failure, typically a symbol that did not resolve on this app
      * build, turns off only that part; it is logged once with the reason.
      */

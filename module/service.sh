@@ -127,21 +127,58 @@ fi
 # already merges the whole tree into /odm, so a second 5 MB copy would only be served by a fallback
 # that never runs.
 POP_ASSET=$APP/files/pop_port
-if [ -d "$PAYLOAD/pld_watermark" ] || [ -d "$PAYLOAD/apk_resources" ]; then
-    mkdir -p "$POP_ASSET/pld_watermark" "$POP_ASSET/apk_resources/json" \
-        "$POP_ASSET/apk_resources/img" "$POP_ASSET/setting_Retro"
-    # -L, not -a: the upstream data layer keeps some of these as links into a shared tree, and cp -a
-    # would copy the link itself, leaving a dangling path inside the app's directory. That is
-    # indistinguishable from "never copied" once the camera looks for the file.
-    [ -d "$PAYLOAD/pld_watermark" ] && cp -aL "$PAYLOAD/pld_watermark/." "$POP_ASSET/pld_watermark/" 2>/dev/null
-    [ -d "$PAYLOAD/apk_resources" ] && cp -aL "$PAYLOAD/apk_resources/." "$POP_ASSET/apk_resources/" 2>/dev/null
-    if [ -d "$PAYLOAD/setting_Retro" ]; then
-        cp -fL "$PAYLOAD/setting_Retro"/* "$POP_ASSET/setting_Retro/" 2>/dev/null || true
+POP_STATUS=$POP_ASSET/status.txt
+mkdir -p "$POP_ASSET"
+: > "$POP_STATUS"
+
+# One payload directory into pop_port, entry by entry, and a line in status.txt either way. The
+# 477 report said only "pld is absent" for a payload that the build had verified was in the zip, so
+# the copy is now also the thing that explains itself: which directories were visible, how many
+# files landed, and whether pld.json survived.
+copy_tree() {
+    NAME=$1
+    SRC=$PAYLOAD/$NAME
+    DST=$POP_ASSET/$NAME
+    if [ ! -d "$SRC" ]; then
+        echo "$NAME: payload absent at $SRC" >> "$POP_STATUS"
+        return
     fi
-    chown -R "$APP_UID:$APP_UID" "$POP_ASSET"
-    find "$POP_ASSET" -type d -exec chmod 0755 {} \;
-    find "$POP_ASSET" -type f -exec chmod 0644 {} \;
+    mkdir -p "$DST"
+    # Count what is there before and after: a pipeline's status is the last command's, so a failing
+    # tar would still look like success. Every non-directory entry in the source must become a file
+    # in the destination — with -h a link becomes a file, which is the point.
+    WANT=$(find "$SRC" ! -type d 2>/dev/null | wc -l)
+    # tar -h, not cp -aL. With -a (archive) cp puts the no-dereference flag back, so -L does not
+    # win and a link into the upstream store is copied as a link — which is indistinguishable from
+    # "never copied" once the camera looks for the file. tar -h dereferences unconditionally.
+    tar -chf - -C "$SRC" . 2>/dev/null | tar -xf - -C "$DST" 2>/dev/null
+    GOT=$(find "$DST" -type f 2>/dev/null | wc -l)
+    if [ "$GOT" -lt "$WANT" ]; then
+        cp -rfL "$SRC/." "$DST/" 2>>"$POP_STATUS"
+        GOT=$(find "$DST" -type f 2>/dev/null | wc -l)
+        echo "$NAME: tar left $GOT of $WANT, cp -rfL retried" >> "$POP_STATUS"
+    else
+        echo "$NAME: copied $GOT files (wanted $WANT)" >> "$POP_STATUS"
+    fi
+}
+
+if [ -d "$PAYLOAD" ]; then
+    copy_tree pld_watermark
+    copy_tree apk_resources
+    copy_tree setting_Retro
+    mkdir -p "$POP_ASSET/apk_resources/json" "$POP_ASSET/apk_resources/img"
+    if [ -f "$POP_ASSET/pld_watermark/pld/pld.json" ]; then
+        echo "pld.json: present" >> "$POP_STATUS"
+    else
+        echo "pld.json: MISSING after the copy" >> "$POP_STATUS"
+    fi
+else
+    echo "payload: $PAYLOAD is absent, nothing to stage" >> "$POP_STATUS"
 fi
+
+chown -R "$APP_UID:$APP_UID" "$POP_ASSET"
+find "$POP_ASSET" -type d -exec chmod 0755 {} \;
+find "$POP_ASSET" -type f -exec chmod 0644 {} \;
 
 # Master colour (大师色彩): the engine data, scene profiles and look tables. Baked preview tables
 # (files/jiege/mastercolor/live) come from the camera and are rebuilt when the module changes; the

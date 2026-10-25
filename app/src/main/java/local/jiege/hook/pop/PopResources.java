@@ -14,8 +14,9 @@ import local.jiege.hook.common.Symbols;
  */
 final class PopResources {
     private static final String TAG = "PopPort";
-    private static final String PLD_DIR = "/data/user/0/com.oplus.camera/files/pop_port/pld_watermark";
-    private static final String APK_RESOURCES_DIR = "/data/user/0/com.oplus.camera/files/pop_port/apk_resources";
+    private static final String POP_ROOT = "/data/user/0/com.oplus.camera/files/pop_port";
+    private static final String PLD_DIR = POP_ROOT + "/pld_watermark";
+    private static final String APK_RESOURCES_DIR = POP_ROOT + "/apk_resources";
 
     private PopResources() {}
 
@@ -27,6 +28,8 @@ final class PopResources {
             // 476 report could only say "missing" — which does not separate "the copy never ran"
             // from "it ran and left a dangling link" (cp -a keeps links, cp -aL follows them).
             Log.i(TAG, "POP PLD resources missing: " + pldJson + " " + describe(pld));
+            Log.i(TAG, "POP tree: " + describe(new File(POP_ROOT)));
+            Log.i(TAG, "POP staging report: " + staging());
             return;
         }
         XposedHelpers.setStaticObjectField(XposedHelpers.findClass(
@@ -54,6 +57,27 @@ final class PopResources {
                 if (file.isFile()) param.setResult(Uri.fromFile(file));
             }
         });
+    }
+
+    /**
+     * The note service.sh leaves behind: which payload directories it could see, and what the copy
+     * left on disk. Without it a missing file says nothing about why.
+     */
+    private static String staging() {
+        File report = new File(POP_ROOT, "status.txt");
+        if (!report.isFile()) return "(" + report + " is absent — service.sh did not reach the POP block)";
+        StringBuilder out = new StringBuilder();
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(
+            new java.io.InputStreamReader(new java.io.FileInputStream(report), "UTF-8"))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (out.length() > 0) out.append(" | ");
+                out.append(line.trim());
+            }
+        } catch (Throwable error) {
+            return "(" + report + " cannot be read: " + error + ")";
+        }
+        return out.length() == 0 ? "(" + report + " is empty)" : out.toString();
     }
 
     /** {@code absent} / {@code a link to …} / the first few entries — enough to tell the cases apart. */

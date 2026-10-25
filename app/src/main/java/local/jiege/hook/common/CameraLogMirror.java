@@ -48,6 +48,10 @@ public final class CameraLogMirror {
         // the log video session and its LUT monitor, the film mode, and the 50 MP page.
         "LogVideoPresenter", "LogLutMenuView", "LogVideoMenu", "MasterVideo", "HighPixel",
         "MovieMode", "Xpan",
+        // 478: "updateConfigure, supported featureList: …" is the list the camera builds presenters
+        // from, per mode. POP's presenter — the only thing that builds the retro view — is created
+        // from that list, so this line says outright whether retro_camera was in it.
+        "FeatureManager",
     };
 
     /** Tags mirrored up to {@link #LIMIT}: what happens to a capture request after the click. */

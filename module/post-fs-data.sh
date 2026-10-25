@@ -53,7 +53,10 @@ bind_merged_dir() {
     mkdir -p "$DEST"
     cp -a "$LIVE"/. "$DEST"/
     if [ -d "$EXTRA" ]; then
-        cp -a "$EXTRA"/. "$DEST"/
+        # Hard links for the payload layer: it is on the same filesystem as DEST, and it is now
+        # ~80 MB (X10 tone curves, the nine GR tables, the POP resources). Copying that every boot
+        # only to throw it away on the next one is wasted time; a link costs an inode.
+        cp -al "$EXTRA"/. "$DEST"/ 2>/dev/null || cp -a "$EXTRA"/. "$DEST"/
     fi
     label_tree "$DEST"
     log "merge $TARGET live=$(ls "$LIVE" | wc -l) merged=$(ls "$DEST" | wc -l)"
@@ -84,11 +87,21 @@ fi
 bind_merged_dir /odm/etc/camera/meishe_lut "$MODDIR/payload/meishe_lut" \
     "$MODDIR/merged/meishe_lut" /odm/etc/camera/meishe_lut
 
+# Payload files live on the same filesystem as the merge destination, so link them instead of
+# copying: the X10 tone curves (41 MB) and the POP resources (12 MB) would otherwise be rewritten on
+# every boot only to be deleted on the next one. Falls back to a copy across filesystems.
+stage() {
+    SRC=$1
+    DST=$2
+    mkdir -p "$DST"
+    cp -al "$SRC"/. "$DST"/ 2>/dev/null || cp -a "$SRC"/. "$DST"/
+}
+
 # basictone: the stock tree plus the X10 tone curves and the retro settings the GR port reads.
 BT_EXTRA=$MODDIR/merged/basictone_extra
 rm -rf "$BT_EXTRA"
 mkdir -p "$BT_EXTRA"
-[ -d "$MODDIR/payload/x10_basictone" ] && cp -a "$MODDIR/payload/x10_basictone"/. "$BT_EXTRA"/
+[ -d "$MODDIR/payload/x10_basictone" ] && stage "$MODDIR/payload/x10_basictone" "$BT_EXTRA"
 # setting_Retro: this firmware has no such directory at all — /odm/etc/camera/basictone holds only
 # lmt / odt / setting / setting_dolby / vig — and the retro BasicTone opens exactly
 # "<setting dir>/SimTool.ini" ("%s/SimTool.ini" is the only ini name in libBasicTonePhoto.so, and
@@ -107,16 +120,79 @@ if [ -d /odm/etc/camera/basictone/setting ]; then
     cp -a /odm/etc/camera/basictone/setting/. "$BT_EXTRA/setting_Retro"/
 fi
 if [ -d "$MODDIR/payload/setting_Retro" ]; then
-    cp -a "$MODDIR/payload/setting_Retro"/. "$BT_EXTRA/setting_Retro"/
+    stage "$MODDIR/payload/setting_Retro" "$BT_EXTRA/setting_Retro"
 fi
 if [ -f "$BT_EXTRA/setting_Retro/SimTool.ini" ]; then
     log "setting_Retro staged: $(ls "$BT_EXTRA/setting_Retro" | wc -l) entries, SimTool.ini $(wc -c < "$BT_EXTRA/setting_Retro/SimTool.ini") bytes"
 else
     log "setting_Retro has no SimTool.ini, the retro viewfinder will stay black"
 fi
-# The GR tone tables are NOT staged here: they go into the app's own data directory from
-# service.sh (files/ricoh_gr/lmt), because the camera process reads them through the profile
-# remap and a second copy under /odm would only cost another 28 MB.
+
+# --- POP and GR data, staged into the merged tree rather than the camera's private files ---
+#
+# This used to live in service.sh, writing to /data/user/0/com.oplus.camera/files. That never ran:
+# /data/user/0/<pkg> does not exist until the user unlocks (ro.crypto.type=file) and KernelSU runs
+# service.sh at late_start, so every version since 475 gave up there and left files/pop_port,
+# files/ricoh_gr/lmt and files/mode_limit_watermark uncreated. 482 tried to rescue it with a
+# detached --wait copy; the 482 report still showed grSc=-1 and "pop_port is absent", so that did
+# not survive either.
+#
+# post-fs-data.sh is the one script this device does run, and the merged basictone tree is a bind
+# mount of a /data directory that the camera process can already read — the retroIni probe proves
+# it (it opened setting_Retro/SimTool.ini through this very tree). So everything the camera reads by
+# name goes here, and the app-side copies are gone: nothing to wait for, nothing to unlock.
+POP_STAGE=$BT_EXTRA/pop_port
+mkdir -p "$POP_STAGE"
+for NAME in pld_watermark apk_resources; do
+    if [ -d "$MODDIR/payload/$NAME" ]; then
+        stage "$MODDIR/payload/$NAME" "$POP_STAGE/$NAME"
+    else
+        log "payload/$NAME is absent, POP will come up with nothing to draw"
+    fi
+done
+log "pop_port staged: $(ls "$POP_STAGE" | wc -l) entries, pld.json=$(ls "$POP_STAGE/pld_watermark/pld/pld.json" 2>/dev/null | wc -l)"
+
+# GR tone tables. The nine SCLut files are the ones BasicTone actually reads (this firmware's
+# setting/SimTool.ini says lut_size = 64, SCLutNum = 9, SC = 1); LMTLut0/1 are copied too so the
+# directory is complete for the LMT pass even though the switch block has LMT = 0.
+#
+# Hard links from the payload: same filesystem, so 28 MB costs nothing and no time. A read-only
+# module directory is fine for that; the merged tree is rebuilt every boot anyway.
+GR_STAGE=$BT_EXTRA/lmt_gr
+mkdir -p "$GR_STAGE"
+for NAME in LMTLut0 LMTLut1; do
+    [ -f "/odm/etc/camera/basictone/lmt/$NAME" ] && cp -f "/odm/etc/camera/basictone/lmt/$NAME" "$GR_STAGE/$NAME"
+done
+if [ -d "$MODDIR/payload/gr_lmt64" ]; then
+    cp -lf "$MODDIR/payload/gr_lmt64"/* "$GR_STAGE"/ 2>/dev/null \
+        || cp -f "$MODDIR/payload/gr_lmt64"/* "$GR_STAGE"/
+    log "lmt_gr staged: $(ls "$GR_STAGE" | wc -l) tables, SCLut0 $(wc -c < "$GR_STAGE/SCLut0" 2>/dev/null || echo 0) bytes"
+else
+    log "payload/gr_lmt64 is absent, every GR style past the first will render on a zero table (green)"
+fi
+
+# GR watermark styles, camera side: the IPU master-watermark renderer reads
+# mode_limit_watermark/gr_style_N/gr_style_N.json and the drawables beside it.
+WM_STAGE=$BT_EXTRA/mode_limit_watermark
+mkdir -p "$WM_STAGE"
+if [ -d "$MODDIR/payload/watermark_master_styles" ]; then
+    for I in 1 2 3 4 5; do
+        ID=gr_style_$I
+        JSON=$MODDIR/payload/watermark_master_styles/$ID.json
+        [ -f "$JSON" ] || continue
+        mkdir -p "$WM_STAGE/$ID"
+        cp -f "$JSON" "$WM_STAGE/$ID/$ID.json"
+        cp -f "$JSON" "$WM_STAGE/$ID.json"
+        if [ -d "$MODDIR/payload/watermark_drawables" ]; then
+            cp -f "$MODDIR/payload/watermark_drawables/"*.webp "$WM_STAGE/$ID/" 2>/dev/null || true
+        fi
+    done
+    if [ -d "$MODDIR/payload/watermark_drawables" ]; then
+        cp -f "$MODDIR/payload/watermark_drawables/"*.webp "$WM_STAGE/" 2>/dev/null || true
+    fi
+    log "mode_limit_watermark staged: $(ls "$WM_STAGE" | wc -l) entries"
+fi
+
 bind_merged_dir /odm/etc/camera/basictone "$BT_EXTRA" \
     "$MODDIR/merged/basictone" /odm/etc/camera/basictone
 

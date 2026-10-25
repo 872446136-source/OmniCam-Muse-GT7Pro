@@ -10,11 +10,17 @@ import local.jiege.hook.common.Symbols;
 
 /**
  * POP port: POP's Polaroid watermark (PLD) and its UI animations/guide images are not in this
- * camera APK. service.sh stages them under files/pop_port; these hooks point the camera there.
+ * camera APK. post-fs-data.sh stages them into the merged basictone tree (see the module script),
+ * and these hooks point the camera there.
+ *
+ * <p>The staging used to be done by service.sh into the camera's private files. That never ran: the
+ * private directory does not exist until the user unlocks and service.sh runs before that, so every
+ * report since 475 said "POP tree is absent". The merged tree is a bind mount of a /data directory
+ * the camera process can already read, so it needs no unlock and no app-side copy.
  */
 final class PopResources {
     private static final String TAG = "PopPort";
-    private static final String POP_ROOT = "/data/user/0/com.oplus.camera/files/pop_port";
+    private static final String POP_ROOT = "/odm/etc/camera/basictone/pop_port";
     private static final String PLD_DIR = POP_ROOT + "/pld_watermark";
     private static final String APK_RESOURCES_DIR = POP_ROOT + "/apk_resources";
 
@@ -24,12 +30,13 @@ final class PopResources {
         File pld = new File(PLD_DIR, "pld");
         File pldJson = new File(pld, "pld.json");
         if (!pldJson.isFile()) {
-            // Say what is actually there: service.sh stages this from the module payload, and the
-            // 476 report could only say "missing" — which does not separate "the copy never ran"
-            // from "it ran and left a dangling link" (cp -a keeps links, cp -aL follows them).
+            // Say what is actually there. "missing" alone cannot separate "post-fs-data.sh did not
+            // reach the block" from "it ran and the payload was absent", and those two need
+            // different fixes.
             Log.i(TAG, "POP PLD resources missing: " + pldJson + " " + describe(pld));
             Log.i(TAG, "POP tree: " + describe(new File(POP_ROOT)));
-            Log.i(TAG, "POP staging report: " + staging());
+            Log.i(TAG, "POP staging is done by post-fs-data.sh into the merged basictone tree; "
+                + "check bind.log in the module directory if this stays absent");
             return;
         }
         XposedHelpers.setStaticObjectField(XposedHelpers.findClass(
@@ -57,27 +64,6 @@ final class PopResources {
                 if (file.isFile()) param.setResult(Uri.fromFile(file));
             }
         });
-    }
-
-    /**
-     * The note service.sh leaves behind: which payload directories it could see, and what the copy
-     * left on disk. Without it a missing file says nothing about why.
-     */
-    private static String staging() {
-        File report = new File(POP_ROOT, "status.txt");
-        if (!report.isFile()) return "(" + report + " is absent — service.sh did not reach the POP block)";
-        StringBuilder out = new StringBuilder();
-        try (java.io.BufferedReader reader = new java.io.BufferedReader(
-            new java.io.InputStreamReader(new java.io.FileInputStream(report), "UTF-8"))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (out.length() > 0) out.append(" | ");
-                out.append(line.trim());
-            }
-        } catch (Throwable error) {
-            return "(" + report + " cannot be read: " + error + ")";
-        }
-        return out.length() == 0 ? "(" + report + " is empty)" : out.toString();
     }
 
     /** {@code absent} / {@code a link to …} / the first few entries — enough to tell the cases apart. */

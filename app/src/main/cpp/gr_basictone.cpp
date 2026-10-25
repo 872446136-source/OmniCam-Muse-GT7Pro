@@ -21,7 +21,7 @@
 namespace {
 
 constexpr char kTag[] = "RicohGrPort";
-constexpr char kGrLmtPath[] = "/data/user/0/com.oplus.camera/files/ricoh_gr/lmt";
+constexpr char kGrLmtPath[] = "/odm/etc/camera/basictone/lmt_gr";
 constexpr char kHostLmtPath[] = "/odm/etc/camera/basictone/lmt";
 constexpr uint32_t kGrCaptureMode = 37;
 constexpr uint32_t kMasterCaptureMode = 33;

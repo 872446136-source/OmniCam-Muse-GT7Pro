@@ -39,7 +39,7 @@ public final class Capabilities {
     /** Config profile staged by service.sh; the native path hooks serve it over the ODM configs. */
     public static final String PROFILE_DIR = "/data/user/0/com.oplus.camera/files/jiege/profile";
     /** GR tone tables, staged by service.sh and served to the camera through the profile remap. */
-    public static final String GR_LMT = "/data/user/0/com.oplus.camera/files/ricoh_gr/lmt";
+    public static final String GR_LMT = "/odm/etc/camera/basictone/lmt_gr";
 
     private static Boolean dataLayer;
     private static Boolean plainDecision;

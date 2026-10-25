@@ -20,7 +20,7 @@ import local.jiege.hook.common.Symbols;
  */
 final class GrEffectTransport {
     private static final String TAG = "RicohGrPort";
-    private static final String GR_LMT_DIR = "/data/user/0/com.oplus.camera/files/ricoh_gr/lmt";
+    private static final String GR_LMT_DIR = "/odm/etc/camera/basictone/lmt_gr";
 
     private GrEffectTransport() {}
 

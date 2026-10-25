@@ -1,6 +1,14 @@
 #!/system/bin/sh
 # Stages the data the camera and gallery read from their own private files.
 #
+# What is NOT here any more: the POP resources, the GR tone tables and the GR watermark styles.
+# Those all went to post-fs-data.sh, which writes them into the merged basictone tree the camera
+# already reads. Reason: this script needs /data/user/0/<pkg>, that directory does not exist until
+# the user unlocks, and KernelSU runs service.sh before that — so from 475 to 482 none of those
+# three ever got staged, no matter what the wait logic did. The 482 report still showed grSc=-1 and
+# "pop_port is absent" with a detached --wait copy in place, so the timing cannot be fixed here.
+# boot-completed.sh runs this script again after the boot broadcast, which is after unlock.
+#
 # Everything here is additive: files are written into the apps' data directories, never over /odm.
 # Each block is skipped when its payload is absent, so a trimmed build simply does less instead of
 # failing halfway.
@@ -23,9 +31,9 @@ case "${1:-}" in
     # /data/user/0/<pkg> only appears once the user unlocks: this device is file-based encrypted
     # (ro.crypto.type=file) and KernelSU runs service.sh at late_start, which on a locked boot is
     # well before that. 481 and every version before it waited 120 seconds, gave up, and exited —
-    # silently, because there was nothing to log to. That is why files/pop_port never existed and
-    # every report said "service.sh did not reach the POP block", and it is why files/ricoh_gr/lmt
-    # was never built either.
+    # silently, because there was nothing to log to. The camera-side data no longer depends on this
+    # script, but the master-colour tables, the gallery watermark styles and the gallery's feature
+    # switch still do, so keep trying.
     N=0
     while [ ! -d "$APP" ] && [ "$N" -lt 720 ]; do
         sleep 10
@@ -114,113 +122,6 @@ chmod 0660 "$PREF_FILE"
 # and before the first unlock it cannot write there at all. Nothing is mounted either way — the
 # native path hooks serve the copy to the camera process only, so /odm stays untouched.
 
-# GR profile: the device's own LMT tree, then the GR tone tables on top as SCLut0..8.
-#
-# 481 skipped every SCLut* here and copied nothing from the payload, because the loop is driven by
-# what /odm holds and this device has no SC16/SC32/CWCM file at all — those names only ever existed
-# in the payload. The profile therefore contained LMTLut0 and LMTLut1 and nothing else, and
-# libBasicTonePhoto reads a table it cannot find as an empty one: the merge then runs on zeros, which
-# is a black viewfinder and a green frame. GR's first style was the only one that needed no SCLut,
-# which is exactly the "only the standard filter works" report.
-#
-# The tables have to be 64^3, not the payload's 32^3: libBasicTonePhoto.so takes the grid size from
-# SimTool.ini (this firmware says lut_size = 64) and then reads a file of that size, so a 32^3 file
-# is read as a quarter of a table and the rest of the bytes land in the next channel. tools/gr_lmt.py
-# resamples at build time; the payload only ships the 32^3 originals.
-if [ -d /odm/etc/camera/basictone/lmt ]; then
-    OUT=$APP/files/ricoh_gr/lmt
-    mkdir -p "$OUT"
-    chown "$APP_UID:$APP_UID" "$APP/files"
-    chmod 0770 "$APP/files"
-    for ORIGINAL in /odm/etc/camera/basictone/lmt/*; do
-        NAME=${ORIGINAL##*/}
-        if [ -L "$OUT/$NAME" ]; then rm "$OUT/$NAME"; fi
-        if [ -d "$ORIGINAL" ]; then
-            mkdir -p "$OUT/$NAME"
-            cp -R "$ORIGINAL/." "$OUT/$NAME/"
-        else
-            cp "$ORIGINAL" "$OUT/$NAME"
-        fi
-    done
-    if [ -f /data/adb/omnicam_grsc_off ]; then
-        # Escape hatch: keep the device's own SCLut0..8 instead of the GR tone curves. The profile
-        # still holds a complete, correctly sized tree, so GR stays usable — it just looks like the
-        # normal photo path instead of a film simulation.
-        echo "GR tone tables skipped, /data/adb/omnicam_grsc_off is present"
-    elif [ -d "$PAYLOAD/gr_lmt64" ]; then
-        for SRC in "$PAYLOAD/gr_lmt64"/*; do
-            [ -f "$SRC" ] || continue
-            NAME=${SRC##*/}
-            rm -f "$OUT/$NAME"
-            cp "$SRC" "$OUT/$NAME"
-        done
-    fi
-    chown -R "$APP_UID:$APP_UID" "$APP/files/ricoh_gr"
-fi
-
-# POP resources. The mode itself is reached through the config profile, but three things it draws
-# with are not in this camera APK: the Polaroid watermark (PLD), the retro UI animations and the
-# guide images. They are staged here and PopResources points the camera at them; without them the
-# hook bails out with "POP PLD resources missing" and the retro UI comes up with nothing to paint.
-#
-# setting_Retro is staged too because pop_path_remap.cpp serves /odm/etc/camera/basictone/setting_Retro
-# from here when the merged /odm tree has no copy; meishe_lut is not duplicated — post-fs-data.sh
-# already merges the whole tree into /odm, so a second 5 MB copy would only be served by a fallback
-# that never runs.
-POP_ASSET=$APP/files/pop_port
-POP_STATUS=$POP_ASSET/status.txt
-mkdir -p "$POP_ASSET"
-: > "$POP_STATUS"
-
-# One payload directory into pop_port, entry by entry, and a line in status.txt either way. The
-# 477 report said only "pld is absent" for a payload that the build had verified was in the zip, so
-# the copy is now also the thing that explains itself: which directories were visible, how many
-# files landed, and whether pld.json survived.
-copy_tree() {
-    NAME=$1
-    SRC=$PAYLOAD/$NAME
-    DST=$POP_ASSET/$NAME
-    if [ ! -d "$SRC" ]; then
-        echo "$NAME: payload absent at $SRC" >> "$POP_STATUS"
-        return
-    fi
-    mkdir -p "$DST"
-    # Count what is there before and after: a pipeline's status is the last command's, so a failing
-    # tar would still look like success. Every non-directory entry in the source must become a file
-    # in the destination — with -h a link becomes a file, which is the point.
-    WANT=$(find "$SRC" ! -type d 2>/dev/null | wc -l)
-    # tar -h, not cp -aL. With -a (archive) cp puts the no-dereference flag back, so -L does not
-    # win and a link into the upstream store is copied as a link — which is indistinguishable from
-    # "never copied" once the camera looks for the file. tar -h dereferences unconditionally.
-    tar -chf - -C "$SRC" . 2>/dev/null | tar -xf - -C "$DST" 2>/dev/null
-    GOT=$(find "$DST" -type f 2>/dev/null | wc -l)
-    if [ "$GOT" -lt "$WANT" ]; then
-        cp -rfL "$SRC/." "$DST/" 2>>"$POP_STATUS"
-        GOT=$(find "$DST" -type f 2>/dev/null | wc -l)
-        echo "$NAME: tar left $GOT of $WANT, cp -rfL retried" >> "$POP_STATUS"
-    else
-        echo "$NAME: copied $GOT files (wanted $WANT)" >> "$POP_STATUS"
-    fi
-}
-
-if [ -d "$PAYLOAD" ]; then
-    copy_tree pld_watermark
-    copy_tree apk_resources
-    copy_tree setting_Retro
-    mkdir -p "$POP_ASSET/apk_resources/json" "$POP_ASSET/apk_resources/img"
-    if [ -f "$POP_ASSET/pld_watermark/pld/pld.json" ]; then
-        echo "pld.json: present" >> "$POP_STATUS"
-    else
-        echo "pld.json: MISSING after the copy" >> "$POP_STATUS"
-    fi
-else
-    echo "payload: $PAYLOAD is absent, nothing to stage" >> "$POP_STATUS"
-fi
-
-chown -R "$APP_UID:$APP_UID" "$POP_ASSET"
-find "$POP_ASSET" -type d -exec chmod 0755 {} \;
-find "$POP_ASSET" -type f -exec chmod 0644 {} \;
-
 # Master colour (大师色彩): the engine data, scene profiles and look tables. Baked preview tables
 # (files/jiege/mastercolor/live) come from the camera and are rebuilt when the module changes; the
 # selected look survives the refresh.
@@ -255,31 +156,6 @@ for FONT in GilroySemiBold.otf FZLTZCHK.TTF; do
 done
 chown -R "$APP_UID:$APP_UID" "$APP/files/jiege" 2>/dev/null || true
 chmod 0771 "$APP/files/jiege" 2>/dev/null || true
-
-# Camera-side GR watermark styles.
-CAM_ML=$APP/files/mode_limit_watermark
-if [ -d "$PAYLOAD/watermark_master_styles" ]; then
-    mkdir -p "$CAM_ML"
-    for i in 1 2 3 4 5; do
-        ID=gr_style_$i
-        NAME=$ID.json
-        JSON=$PAYLOAD/watermark_master_styles/$NAME
-        if [ -f "$JSON" ]; then
-            mkdir -p "$CAM_ML/$ID"
-            cp -f "$JSON" "$CAM_ML/$ID/$NAME"
-            cp -f "$JSON" "$CAM_ML/$NAME"
-            if [ -d "$PAYLOAD/watermark_drawables" ]; then
-                cp -f "$PAYLOAD/watermark_drawables/"*.webp "$CAM_ML/$ID/" 2>/dev/null || true
-            fi
-        fi
-    done
-    if [ -d "$PAYLOAD/watermark_drawables" ]; then
-        cp -f "$PAYLOAD/watermark_drawables/"*.webp "$CAM_ML/" 2>/dev/null || true
-    fi
-    chown -R "$APP_UID:$APP_UID" "$CAM_ML"
-    find "$CAM_ML" -type f -exec chmod 0644 {} \;
-    find "$CAM_ML" -type d -exec chmod 0755 {} \;
-fi
 
 wait_for "$GALLERY" 120 || exit 0
 GALLERY_UID=$(stat -c %u "$GALLERY")

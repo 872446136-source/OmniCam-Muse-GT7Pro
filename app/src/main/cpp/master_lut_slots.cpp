@@ -43,7 +43,7 @@
 namespace {
 
 constexpr char kTag[] = "MuseLutSlots";
-constexpr char kRicohLmt[] = "/data/user/0/com.oplus.camera/files/ricoh_gr/lmt";
+constexpr char kRicohLmt[] = "/odm/etc/camera/basictone/lmt_gr";
 
 // BasicTone (libBasicTonePhotoX9.so, X9U stock libBasicTonePhoto md5 827ff5d7…) table pointers.
 constexpr size_t kLmtTable = 0xd48;

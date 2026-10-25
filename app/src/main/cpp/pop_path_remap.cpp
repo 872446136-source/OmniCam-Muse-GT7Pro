@@ -8,10 +8,10 @@
 
 #include "native_hooks.h"
 
-// POP port, native half: the POP retro settings and Meishe LUTs are staged by service.sh under
-// the camera's private files. Reads of the ODM paths are redirected there when a staged copy
-// exists, so no ODM directory has to be replaced for POP. Meishe LUT reads are also served from
-// the master filters the user imported (files/jiege/lut, see MasterFilterSync).
+// POP port, native half: reads of the ODM Meishe LUT paths are served from the master filters the
+// user imported (files/jiege/lut, see MasterFilterSync). The POP retro settings are NOT redirected
+// any more — post-fs-data.sh stages setting_Retro into the merged basictone tree, which is the path
+// the engine opens anyway, so the redirect has nothing to point at and falls through.
 // The same hooks serve the natural photo mode's tuning json (natural_mode.cpp).
 static int (*originalOpenat)(int, const char *, int, ...);
 static int (*originalFaccessat)(int, const char *, int, int);

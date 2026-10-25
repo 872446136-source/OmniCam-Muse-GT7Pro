@@ -33,7 +33,7 @@ import org.json.JSONObject;
  */
 final class GrCameraWatermark {
     private static final String TAG = "RicohGrPort";
-    private static final String MODE_LIMIT_DIR = "/data/user/0/com.oplus.camera/files/mode_limit_watermark";
+    private static final String MODE_LIMIT_DIR = "/odm/etc/camera/basictone/mode_limit_watermark";
     private static final String GALLERY_STYLE_DIR = "/data/user/0/com.coloros.gallery3d/files/ricoh_gr_styles";
     // Local font directories: the camera's own downloads, then gallery fonts staged by service.sh.
     private static final String[] FONT_DIRS = {

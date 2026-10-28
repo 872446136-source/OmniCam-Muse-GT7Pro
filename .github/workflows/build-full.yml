@@ -213,7 +213,7 @@ jobs:
                       basictone/pop_port/apk_resources/json \
                       basictone/mode_limit_watermark/gr_style_1/gr_style_1.json \
                       meishe_lut/JG_FILM_KODAK_GOLD_200.cube.rgb.bin; do
-            unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep -qx "system/odm/etc/camera/$NAME" \
+            unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep -q "^system/odm/etc/camera/$NAME" \
               || { echo "::error::the mount layer is missing $NAME"; exit 1; }
           done
           unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c . || true

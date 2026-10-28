@@ -30,3 +30,10 @@ ui_print "- Settings app: $RESULT"
 for DIR in /data/user/0/com.oplus.camera/files/jiege/profile /data/data/com.oplus.camera/files/jiege/profile; do
     [ -d "$DIR" ] && rm -rf "$DIR"
 done
+
+# 484 kept a copy of the payload under the camera's private files. 485 mounts it as a module layer
+# instead, and a leftover copy would shadow the layer with whatever 484 shipped. Remove it here as
+# well as in service.sh, because the camera can be opened before service.sh gets a chance.
+for DIR in /data/user/0/com.oplus.camera/files/jiege/basictone /data/data/com.oplus.camera/files/jiege/basictone; do
+    [ -d "$DIR" ] && rm -rf "$DIR"
+done

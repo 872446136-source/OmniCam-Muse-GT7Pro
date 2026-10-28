@@ -28,7 +28,11 @@ import local.jiege.hook.common.Log;
  * {@code professional} in it and the headline move stands. Night is then pushed into the panel to
  * make room, which is what the reference layout does anyway.
  *
- * <p>Only that one key is touched, only for this process, and only for the length of the call that
+ * <p>The same key also carries XPAN's rank, which is how 485 gets XPAN on screen at all: it is
+ * seeded into the panel but lands in the last slot, past where the panel stops drawing. See
+ * {@link #promoteXpan}.
+ *
+ * <p>Only that key is touched, only for this process, and only for the length of the call that
  * reads it. Escape hatch: {@code touch /data/adb/omnicam_placement_off}.
  */
 public final class ModePlacement {
@@ -38,6 +42,10 @@ public final class ModePlacement {
     private static final String READER = "u";
     private static final String PANEL = "com.oplus.feature.move.mode.to.panel";
     private static final String MASTER = "professional";
+    /** XPAN's mode name in this firmware's tables ({@code xpan id=28}). */
+    private static final String XPAN = "xpan";
+    /** Where XPAN is moved to: inside the part of the panel the UI actually draws. */
+    private static final int XPAN_RANK = 3;
     private static boolean installed;
 
     private ModePlacement() {}
@@ -86,15 +94,61 @@ public final class ModePlacement {
                         }
                         kept.add(item);
                     }
-                    if (kept.size() == original.size()) return;
+                    boolean changed = kept.size() != original.size();
+                    if (promoteXpan(kept)) changed = true;
+                    if (!changed) return;
                     param.setResult(kept);
-                    log("panel move served without " + MASTER + ": " + kept);
+                    log("panel move served: " + kept);
                 }
             });
-            Log.i(TAG, "panel move hooked, 大师模式 goes to the bar");
+            Log.i(TAG, "panel move hooked, 大师模式 goes to the bar, XPAN moves up");
         } catch (Throwable error) {
             Log.e(TAG, "panel move hook failed", error);
         }
+    }
+
+    /**
+     * XPAN is seeded into this device's panel by the config profile, but it lands in the last slot —
+     * {@code xpan id=28 position_mode_panel rank=13} in every report since 477 — and the panel stops
+     * drawing before that, so the mode exists in the table and never appears on screen.
+     *
+     * <p>Moving it is the same mechanism 大师模式 uses: the list this key returns is a list of
+     * (mode, rank) moves, so giving XPAN a lower rank and pushing the modes it passes one slot down
+     * puts it inside the visible part of the panel. Only the order changes; every entry stays.
+     *
+     * @return whether the list was modified
+     */
+    private static boolean promoteXpan(ArrayList<Object> pairs) {
+        int xpan = -1;
+        for (int i = 0; i + 1 < pairs.size(); i += 2) {
+            if (XPAN.equals(pairs.get(i))) {
+                xpan = i;
+                break;
+            }
+        }
+        if (xpan < 0) return false;
+        int rank = rank(pairs.get(xpan + 1));
+        if (rank < 0 || rank <= XPAN_RANK) return false;
+        for (int i = 0; i + 1 < pairs.size(); i += 2) {
+            if (i == xpan) continue;
+            int other = rank(pairs.get(i + 1));
+            if (other >= XPAN_RANK && other < rank) pairs.set(i + 1, other + 1);
+        }
+        pairs.set(xpan + 1, XPAN_RANK);
+        return true;
+    }
+
+    /** Ranks come out of the config as Integer, but a String would silently break the compare. */
+    private static int rank(Object value) {
+        if (value instanceof Number) return ((Number) value).intValue();
+        if (value instanceof String) {
+            try {
+                return Integer.parseInt(((String) value).trim());
+            } catch (NumberFormatException ignored) {
+                return -1;
+            }
+        }
+        return -1;
     }
 
     /** {@code u(String)} returning a List: this build's shape is not assumed. */

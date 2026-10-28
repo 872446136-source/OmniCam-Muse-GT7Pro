@@ -87,7 +87,7 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         Symbols.install("gallery", classLoader, param.appInfo.sourceDir, param.appInfo.dataDir);
 
         boolean data = Capabilities.dataLayer();
-        String noData = "滤镜 / GR 数据未挂载，KSU 模块没生效";
+        String noData = "模块的 /odm 数据层没挂载：确认模块已启用、magic_mount_rs 已安装，然后重启";
 
         Install.run("相册地址跳转", true, "", () -> AddressNavigation.installGallery(classLoader));
         Install.run("水印系列解锁", true, "", () -> WatermarkSeriesUnlock.installGallery(classLoader));
@@ -148,8 +148,8 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         boolean lmt = Capabilities.lmt();
         Diagnostics.setFilesMounted(Capabilities.dataRoot() != null);
         Log.i("Capabilities", Capabilities.dataLayerNote());
-        String noData = "滤镜 / GR 数据未挂载，KSU 模块没生效";
-        String noGrData = "GR 色调表没到位（合并树和私有目录副本都没有）";
+        String noData = "模块的 /odm 数据层没挂载：确认模块已启用、magic_mount_rs 已安装，然后重启";
+        String noGrData = "/odm/etc/camera/basictone/lmt_gr 不存在，GR 色调表没挂载";
         String noNative = "原生层未加载";
         String noLmt = "本机没有 /odm/etc/camera/basictone/lmt";
 
@@ -210,7 +210,7 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         boolean retroMode = retroTuning && Capabilities.hasMode("retro_camera_mode");
         Install.run("POP 复古相机", retroMode && nativeLibrary,
             !retroTuning
-                ? "没有 setting_Retro（合并树和相机私有目录副本都没有）"
+                ? "/odm/etc/camera/basictone/setting_Retro 不存在，retro 数据没挂载"
                 : "本机 mode_type_list 没有 retro_camera_mode（配置 profile 未生效）",
             () -> PopPort.installCamera(classLoader, CAMERA.equals(param.processName)));
         Install.run("无缝模糊保护", retroMode, "POP 未启用，无需保护",

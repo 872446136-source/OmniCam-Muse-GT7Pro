@@ -1,11 +1,11 @@
 #!/system/bin/sh
 # Stages the data the camera and gallery read from their own private files.
 #
-# The POP resources, the GR tone tables and the GR watermark styles are built by post-fs-data.sh
-# into the merged basictone tree, because that tree needs no unlock and no wait. Since 484 this
-# script also keeps a second copy of that layer under the camera's own files (see "Camera-side copy"
-# below): the merged tree is a module mount, and KernelSU can unmount module mounts for the camera
-# app alone, which is precisely what the 483 report shows.
+# The camera-side payload is NOT here any more. Since 485 it ships as a module filesystem layer
+# (system/odm/etc/camera/...), mounted by magic mount before any app starts — no script, no unlock,
+# no window in which the camera can see a half-built tree. What is left here is what genuinely
+# belongs to an app's own data directory: the master-colour tables, the imported filters, the
+# gallery's watermark styles and its feature switch, and the profile.
 #
 # Everything here is additive: files are written into the apps' data directories, never over /odm.
 # Each block is skipped when its payload is absent, so a trimmed build simply does less instead of
@@ -14,7 +14,7 @@
 # No restorecon on anything under /data/user/0/<pkg>: running it there replaces the app's SELinux
 # categories with the ones in file_contexts, which have none, and the app is then denied the files
 # this script just wrote. New files inherit the parent directory's context (categories included), so
-# chown and chmod are all that is needed. The one chcon below copies a directory's own context.
+# chown and chmod are all that is needed.
 #
 # Kill switch: touch /data/adb/omnicam_off, then reboot.
 
@@ -155,87 +155,20 @@ done
 chown -R "$APP_UID:$APP_UID" "$APP/files/jiege" 2>/dev/null || true
 chmod 0771 "$APP/files/jiege" 2>/dev/null || true
 
-# Camera-side copy of the basictone payload — the reason 484 exists.
+# The camera-side basictone copy is gone in 485, and this block cleans it up.
 #
-# post-fs-data.sh stages setting_Retro / lmt_gr / pop_port / mode_limit_watermark into a bind mount
-# over /odm/etc/camera/basictone. That is a *module* mount, and KernelSU's per-app 卸载模块 (or
-# Zygisk Next's denylist, which the 10007 ad-block module turns on at each boot) removes module
-# mounts from one app's process namespace. So the camera alone stops seeing the tree while the
-# settings app still reads it: the 483 report is exactly that state, data=false / retro=false /
-# grSc=-1 with every data-layer feature off, and POP went black while GR hung.
-#
-# App private files are not a module mount, so nothing can hide them from the camera. This copies
-# the same four directories next to the profile, and both the native and the Java side resolve them
-# from there when the merged tree is missing. ~42 MB, and only when the module version changed.
-#
-# Source order matters. merged/basictone_extra is the layer post-fs-data.sh already composed, so it
-# is used when it exists. When it does not — that script did not run this boot, which is one of the
-# two ways the 483 report can be explained — the same composition is done here from payload/ and the
-# device's own setting/ tree, because a copy of nothing is nothing.
+# 484 kept a 42 MB copy of the payload under the camera's private files because the merged tree was
+# a module mount that could vanish. The copy never appeared on this device: this script runs before
+# the user unlocks, /data/user/0/com.oplus.camera does not exist yet, and the detached --wait copy
+# dies with its parent. 485 mounts the payload as a module filesystem layer instead, which is in
+# place before any app starts, so there is nothing to copy — and a leftover copy from 484 must not
+# be left to shadow it, because the camera would then read a stale layer.
 BASICTONE_DST=$APP/files/jiege/basictone
-BASICTONE_SRC=$MODDIR/merged/basictone_extra
-STAMP=$(grep '^versionCode=' "$MODDIR/module.prop")
-
-compose_basictone() {
-    OUT=$1
-    SRC=$2
-    rm -rf "$OUT"
-    mkdir -p "$OUT"
-    if [ -d "$SRC" ]; then
-        for NAME in setting_Retro lmt_gr pop_port mode_limit_watermark; do
-            [ -d "$SRC/$NAME" ] || continue
-            # Not cp -a: that carries the merged tree's vendor_configs_file label into app data,
-            # where the camera is then denied. New files must inherit files/jiege's context.
-            cp -r "$SRC/$NAME" "$OUT/$NAME"
-        done
-        echo "basictone copy from $SRC" >> "$MODDIR/bind.log"
-        return 0
-    fi
-    # setting_Retro: the device's own setting/ tree (SimTool.ini, Ditherout/, FromXml/), then the
-    # payload on top. The retro engine opens exactly "<setting dir>/SimTool.ini".
-    mkdir -p "$OUT/setting_Retro"
-    [ -d /odm/etc/camera/basictone/setting ] && cp -r /odm/etc/camera/basictone/setting/. "$OUT/setting_Retro"/
-    [ -d "$PAYLOAD/setting_Retro" ] && cp -r "$PAYLOAD/setting_Retro"/. "$OUT/setting_Retro"/
-    # lmt_gr: the nine 64^3 SCLut tables, plus the two LMT tables from the stock lmt directory.
-    mkdir -p "$OUT/lmt_gr"
-    for NAME in LMTLut0 LMTLut1; do
-        [ -f "/odm/etc/camera/basictone/lmt/$NAME" ] && cp -f "/odm/etc/camera/basictone/lmt/$NAME" "$OUT/lmt_gr/$NAME"
-    done
-    [ -d "$PAYLOAD/gr_lmt64" ] && cp -f "$PAYLOAD/gr_lmt64"/* "$OUT/lmt_gr"/
-    # pop_port: the Polaroid watermark resources and the retro UI animations / guide images.
-    mkdir -p "$OUT/pop_port"
-    for NAME in pld_watermark apk_resources; do
-        [ -d "$PAYLOAD/$NAME" ] && cp -r "$PAYLOAD/$NAME" "$OUT/pop_port/$NAME"
-    done
-    # mode_limit_watermark: the five GR watermark styles and their drawables.
-    mkdir -p "$OUT/mode_limit_watermark"
-    if [ -d "$PAYLOAD/watermark_master_styles" ]; then
-        for I in 1 2 3 4 5; do
-            ID=gr_style_$I
-            JSON=$PAYLOAD/watermark_master_styles/$ID.json
-            [ -f "$JSON" ] || continue
-            mkdir -p "$OUT/mode_limit_watermark/$ID"
-            cp -f "$JSON" "$OUT/mode_limit_watermark/$ID/$ID.json"
-            cp -f "$JSON" "$OUT/mode_limit_watermark/$ID.json"
-            [ -d "$PAYLOAD/watermark_drawables" ] && cp -f "$PAYLOAD/watermark_drawables/"*.webp "$OUT/mode_limit_watermark/$ID/" 2>/dev/null
-        done
-        [ -d "$PAYLOAD/watermark_drawables" ] && cp -f "$PAYLOAD/watermark_drawables/"*.webp "$OUT/mode_limit_watermark/" 2>/dev/null
-    fi
-    echo "basictone copy composed from payload" >> "$MODDIR/bind.log"
-}
-
-if [ "$(cat "$BASICTONE_DST/stamp" 2>/dev/null)" != "$STAMP" ]; then
-    compose_basictone "$BASICTONE_DST" "$BASICTONE_SRC"
-    echo "$STAMP" > "$BASICTONE_DST/stamp"
-    echo "basictone copy: gr=$(ls "$BASICTONE_DST/lmt_gr" 2>/dev/null | wc -l) retro=$(ls "$BASICTONE_DST/setting_Retro" 2>/dev/null | wc -l) pop=$(ls "$BASICTONE_DST/pop_port" 2>/dev/null | wc -l) wm=$(ls "$BASICTONE_DST/mode_limit_watermark" 2>/dev/null | wc -l)" >> "$MODDIR/bind.log"
+if [ -d "$BASICTONE_DST" ]; then
+    rm -rf "$BASICTONE_DST"
+    echo "removed the 484 basictone copy: the module layer is the only source now" >> "$MODDIR/bind.log"
 fi
-chown -R "$APP_UID:$APP_UID" "$BASICTONE_DST" 2>/dev/null || true
-find "$BASICTONE_DST" -type d -exec chmod 0771 {} \; 2>/dev/null || true
-find "$BASICTONE_DST" -type f -exec chmod 0644 {} \; 2>/dev/null || true
-APP_CONTEXT=$(ls -dZ "$APP/files/jiege" 2>/dev/null | awk '{print $1}')
-if [ -n "$APP_CONTEXT" ]; then
-    chcon -R "$APP_CONTEXT" "$BASICTONE_DST" 2>/dev/null || true
-fi
+echo "layer: lmt_gr=$(ls /odm/etc/camera/basictone/lmt_gr 2>/dev/null | wc -l) pop=$(ls /odm/etc/camera/basictone/pop_port 2>/dev/null | wc -l) retro=$(ls /odm/etc/camera/basictone/setting_Retro 2>/dev/null | wc -l) wm=$(ls /odm/etc/camera/basictone/mode_limit_watermark 2>/dev/null | wc -l)" >> "$MODDIR/bind.log"
 
 wait_for "$GALLERY" 120 || exit 0
 GALLERY_UID=$(stat -c %u "$GALLERY")

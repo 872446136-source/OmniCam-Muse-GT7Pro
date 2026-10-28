@@ -1,6 +1,5 @@
 package local.jiege.hook.common;
 
-import android.system.Os;
 import java.io.File;
 import java.io.FileInputStream;
 
@@ -48,24 +47,30 @@ public final class Capabilities {
     /**
      * The four directories the POP / GR engines read, best source first.
      *
-     * <p>The first entry is the merged tree {@code post-fs-data.sh} bind-mounts, and it is the one
-     * every version up to 483 relied on. It is also the one that keeps disappearing: it is a
-     * <em>module</em> mount, so KernelSU's per-app 卸载模块 (or Zygisk Next's denylist, which the
-     * 10007 ad-block module switches on at each boot) removes it from the camera process alone. The
-     * 483 report is exactly that state — the settings app sees the module fine while the camera
-     * reports {@code data=false retro=false grSc=-1} — and no amount of work in the module script can
-     * survive a mount that is not in the process's namespace.
+     * <p>Since 485 the first entry is the only one that should ever answer: the payload is a module
+     * filesystem layer ({@code system/odm/etc/camera/...} inside the module), mounted by magic mount
+     * — KernelSU's own, or the {@code magic_mount_rs} metamodule — before any app starts. Every
+     * version up to 484 instead composed a merged tree in the module directory and bind-mounted it
+     * from {@code post-fs-data.sh}; that is what kept breaking (482 data=true, 483 data=false with
+     * the whole data layer off), because it depended on one script running at the right moment.
      *
-     * <p>The second entry is the same four directories copied by {@code service.sh} into the
-     * camera's own private files. App data is not a module mount, so nothing can hide it from the
-     * camera. Same bytes, same module, one extra copy — and it makes the port independent of a
-     * toggle the user should not have to find.
+     * <p>The remaining entries are the 484 leftovers. Nothing writes them any more — {@code
+     * service.sh} deletes them — but the probe keeps reading them so a phone that has not been
+     * rebooted since upgrading still works, and so a report that shows {@code root=files} is
+     * immediately recognisable as a stale install.
      */
     private static final String[] BASICTONE_ROOTS = {
         BASICTONE,
         CAMERA_BASICTONE,
         "/data/data/com.oplus.camera/files/jiege/basictone",
     };
+
+    /**
+     * A file only the module's layer has. Used instead of a device-id comparison because the layer
+     * is an overlay over {@code /odm}: everything under it, stock files included, then lives on the
+     * same anonymous device, so {@code st_dev} can no longer tell "mounted" from "not mounted".
+     */
+    private static final String LAYER_MARKER = MEISHE_LUT + "/JG_FILM_KODAK_GOLD_200.cube.rgb.bin";
 
     private static Boolean dataLayer;
     private static Boolean plainDecision;
@@ -77,9 +82,9 @@ public final class Capabilities {
 
     private Capabilities() {}
 
-    /** True once the module's payload is mounted: the LUT tree sits on another device than its parent. */
+    /** True once the module's payload is visible: the layer carries a LUT the firmware never ships. */
     public static synchronized boolean dataLayer() {
-        if (dataLayer == null) dataLayer = mounted(MEISHE_LUT, ODM_CAMERA);
+        if (dataLayer == null) dataLayer = readable(LAYER_MARKER);
         return dataLayer;
     }
 
@@ -248,20 +253,24 @@ public final class Capabilities {
     }
 
     /**
-     * Why the data layer is or is not usable, in words a report can act on. The old wording said
-     * "KSU module not mounted" for both a module that never mounted and a module that mounted but is
-     * unmounted inside the camera process, and those two need different fixes.
+     * Why the data layer is or is not usable, in words a report can act on.
+     *
+     * <p>Three states, three fixes: the layer mounted (nothing to do), a stale 484 copy answering
+     * (reboot once and it is gone), or nothing at all — which on this device means the module's
+     * {@code system/odm} tree is not mounted, i.e. the module is disabled in KernelSU or the
+     * metamodule was reinstalled without a reboot.
      */
     public static String dataLayerNote() {
         String root = dataRoot();
         if (root == null) {
-            return "相机进程看不到模块数据：合并树和私有目录副本都没有。检查 KernelSU 卸载模块 / Zygisk Next 排除列表，"
-                + "并确认 /data/adb/modules 下的模块目录里有 merged/basictone_extra";
+            return "相机进程看不到模块数据：/odm/etc/camera 下没有 lmt_gr / pop_port / setting_Retro，"
+                + "说明模块的 system/odm 层没被挂载。确认 KernelSU 里本模块已启用（没有 disable 标记）、"
+                + "magic_mount_rs 元模块已安装，然后重启手机";
         }
         if (root.equals(BASICTONE)) {
-            return "模块数据走合并树（post-fs-data.sh 挂载）";
+            return "模块数据走 /odm 模块层（magic mount），这是正常状态";
         }
-        return "模块数据走相机私有目录副本（模块挂载在相机进程里被卸载，service.sh 已补一份）";
+        return "模块数据走 484 遗留的相机私有目录副本，重启一次就会切回 /odm 模块层";
     }
 
     /** Size of the staged profile, so a report shows whether it is the file that was built. */
@@ -295,14 +304,6 @@ public final class Capabilities {
     }
 
     private static String UNIT_TEXT;
-
-    private static boolean mounted(String path, String parent) {
-        try {
-            return Os.stat(path).st_dev != Os.stat(parent).st_dev;
-        } catch (Throwable error) {
-            return false;
-        }
-    }
 
     private static boolean readable(String path) {
         try {

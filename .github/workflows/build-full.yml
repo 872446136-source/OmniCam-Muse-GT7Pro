@@ -100,6 +100,69 @@ jobs:
           test "$(ls module/payload/gr_lmt64 | wc -l)" = 9
           du -sh module/payload/*
 
+      - name: Assemble the mount layer
+        run: |
+          set -eux
+          # 485: the payload stops being a /data tree that a script bind-mounts and becomes a plain
+          # module filesystem layer under system/odm. Magic mount — KernelSU's own, or the
+          # magic_mount_rs metamodule — puts it over /odm before any app starts, so the camera can no
+          # longer open before the data is there, which is what 475-484 kept tripping over.
+          #
+          # Overlay semantics, not copy semantics: a file the layer carries shadows the stock file of
+          # the same name, and every stock file it does not carry stays visible. That is exactly what
+          # the old "copy the live tree, then copy the payload on top" merge did, without the merge.
+          CAM=module/system/odm/etc/camera
+          BT=$CAM/basictone
+          mkdir -p "$BT"
+          cp -a module/payload/meishe_lut "$CAM/meishe_lut"
+
+          # X10 tone curves (lmt/), palette tables and the four palette ini files.
+          cp -a module/payload/x10_basictone/. "$BT"/
+
+          # GR tone tables. LMTLut0/1 are this firmware's own, taken from the device dump so the
+          # directory is complete for the LMT pass (SimTool.ini has LMT = 0, so it is not used);
+          # the nine SCLut are the 64^3 GR look, which is the grid size this firmware reads.
+          mkdir -p "$BT/lmt_gr"
+          cp -a tools/lmt_host/LMTLut0 tools/lmt_host/LMTLut1 "$BT/lmt_gr"/
+          cp -a module/payload/gr_lmt64/. "$BT/lmt_gr"/
+
+          # POP: the Polaroid watermark resources and the retro UI animations / guide images.
+          mkdir -p "$BT/pop_port"
+          cp -a module/payload/pld_watermark "$BT/pop_port/pld_watermark"
+          cp -a module/payload/apk_resources "$BT/pop_port/apk_resources"
+
+          # GR watermark styles, both layouts the two readers use (dir/style.json and style.json).
+          mkdir -p "$BT/mode_limit_watermark"
+          for I in 1 2 3 4 5; do
+            ID=gr_style_$I
+            mkdir -p "$BT/mode_limit_watermark/$ID"
+            cp -a "module/payload/watermark_master_styles/$ID.json" "$BT/mode_limit_watermark/$ID/$ID.json"
+            cp -a "module/payload/watermark_master_styles/$ID.json" "$BT/mode_limit_watermark/$ID.json"
+            cp -a module/payload/watermark_drawables/*.webp "$BT/mode_limit_watermark/$ID/"
+          done
+          cp -a module/payload/watermark_drawables/*.webp "$BT/mode_limit_watermark/"
+
+          # setting_Retro: this firmware has no such directory at all, and the retro BasicTone opens
+          # exactly "<dir>/SimTool.ini" ("%s/SimTool.ini" is the only ini name in
+          # libBasicTonePhoto.so). Ship the device's own setting/ tree — SimTool.ini plus the
+          # Ditherout/ and FromXml/ it points at — so the retro path finds a complete configuration
+          # instead of a directory with no lut_size and no switch block.
+          cp -a tools/setting_retro "$BT/setting_Retro"
+
+          # Report what the layer actually contains, and fail loudly on the two files that decide
+          # whether POP renders at all.
+          du -sh "$CAM" "$BT"/* | sort -h
+          test -f "$BT/setting_Retro/SimTool.ini"
+          test -f "$BT/pop_port/pld_watermark/pld/pld.json"
+          test "$(ls "$BT/lmt_gr" | wc -l)" = 11
+          test "$(wc -c < "$BT/lmt_gr/SCLut0")" = 3145728
+
+          # The layer is the only copy now. Leaving the same bytes in payload/ as well would double
+          # the download for no reason, and a stale duplicate is how the two sources start to drift.
+          rm -rf module/payload/meishe_lut module/payload/x10_basictone module/payload/gr_lmt64 \
+                 module/payload/pld_watermark module/payload/apk_resources module/payload/setting_Retro
+          du -sh module/payload/*
+
       - name: Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -133,25 +196,32 @@ jobs:
           set -eux
           cp OmniCam-Muse-GT7Pro.apk module/omnicam-muse-lite.apk
           python3 tools/zip_module.py module OmniCam-Muse-GT7Pro-KSU.zip
-          # Guard rails: the zip must carry no library and no /odm tree. A regression here is exactly
-          # the black-screen bug this build exists to remove.
-          if unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -E '\.so$|^.*system/'; then
-            echo "::error::the module zip carries a library or a system/ tree"
+          # Guard rails. A library anywhere in the zip is the black-screen bug this build exists to
+          # remove, and the only system tree allowed is the data layer under system/odm/etc/camera —
+          # no /system library, no vendor config, no camera_unit_config.
+          if unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -E '\.so$'; then
+            echo "::error::the module zip carries a library"
             exit 1
           fi
+          if unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep '^system/' | grep -v '^system/odm/etc/camera/'; then
+            echo "::error::the module zip carries a system tree outside system/odm/etc/camera"
+            exit 1
+          fi
+          for NAME in basictone/lmt_gr/SCLut0 basictone/lmt_gr/LMTLut0 \
+                      basictone/setting_Retro/SimTool.ini \
+                      basictone/pop_port/pld_watermark/pld/pld.json \
+                      basictone/pop_port/apk_resources/json \
+                      basictone/mode_limit_watermark/gr_style_1/gr_style_1.json \
+                      meishe_lut/JG_FILM_KODAK_GOLD_200.cube.rgb.bin; do
+            unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep -qx "system/odm/etc/camera/$NAME" \
+              || { echo "::error::the mount layer is missing $NAME"; exit 1; }
+          done
           unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c . || true
-          for DIR in meishe_lut x10_basictone setting_Retro gr_lmt64 master_color \
-                     watermark_master_styles watermark_drawables ipu pld_watermark apk_resources; do
+          # What is left in payload/ is only what service.sh writes into an app's own data
+          # directory: the master-colour engine, the gallery's watermark styles, the IPU jar.
+          for DIR in master_color watermark_master_styles watermark_drawables ipu; do
             printf '%s %s\n' "$DIR" "$(unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c "payload/$DIR/")"
           done
-          # POP paints the viewfinder with these; an empty payload here is the "POP PLD resources
-          # missing" line in the module log and a retro UI with nothing to draw.
-          unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -q "payload/pld_watermark/pld/pld.json"
-          unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -q "payload/apk_resources/json/"
-          # Without SimTool.ini under this exact name the retro BasicTone finds no settings and the
-          # viewfinder stays black; without nine 64^3 tables every GR style past the first does too.
-          unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -q "payload/setting_Retro/SimTool.ini"
-          test "$(unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c 'payload/gr_lmt64/SCLut')" = 9
           du -h OmniCam-Muse-GT7Pro-KSU.zip OmniCam-Muse-GT7Pro.apk
 
       - name: Publish

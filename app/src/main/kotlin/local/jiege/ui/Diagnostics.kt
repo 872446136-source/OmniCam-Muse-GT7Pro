@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Process
-import android.system.Os
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -86,7 +85,7 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
             checks += Check(
                 "KSU 模块",
                 mounted,
-                if (mounted) "模块数据可读（合并树或相机私有目录副本）" else "数据未挂载也没有副本，确认 KSU 模块已启用并重启手机",
+                if (mounted) "模块数据可读（/odm 模块层）" else "数据未挂载：确认 KernelSU 里本模块已启用、magic_mount_rs 元模块已安装，然后重启手机",
             )
             val updated = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
             // A process still running hooks from the previous module APK only needs a restart.
@@ -148,20 +147,17 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
             return InjectionState(checks, health)
         }
 
-        /** The module mounts the data layer (LUTs, basictone) over /odm, so it sits on another device. */
         /**
-         * The module's payload is reachable: either the bind mount over /odm, or the copy service.sh
-         * keeps in the camera's private files. The second one is what survives KernelSU 卸载模块 and
-         * a Zygisk Next denylist, the two ways the mount disappears from an app's namespace — and
-         * reporting those as "KSU 模块异常" was wrong once the copy exists.
+         * Whether the module's payload is reachable from this process.
+         *
+         * <p>Not a device-id comparison: since 485 the payload is an overlay layer over /odm, so
+         * stock files and module files share one anonymous device and {@code st_dev} says nothing.
+         * What is checked instead is a directory only the module creates, and — for a phone that
+         * has not rebooted since 484 — the old private copy.
          */
         private fun moduleMounted(): Boolean {
             val copied = java.io.File(Capabilities.CAMERA_BASICTONE, "lmt_gr").isDirectory()
-            return try {
-                copied || Os.stat(Capabilities.MEISHE_LUT).st_dev != Os.stat(Capabilities.ODM_CAMERA).st_dev
-            } catch (_: Exception) {
-                copied
-            }
+            return copied || Capabilities.dataRoot() != null
         }
     }
 }

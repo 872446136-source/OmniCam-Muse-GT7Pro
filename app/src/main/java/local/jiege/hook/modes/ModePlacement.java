@@ -9,7 +9,7 @@ import java.util.List;
 import local.jiege.hook.common.Log;
 
 /**
- * Puts 大师模式 in the mode bar instead of the "more" panel.
+ * Puts 大师模式 and XPAN in the mode bar instead of the "more" panel.
  *
  * <p>大师模式 is mode {@code professional} (the camera calls it ProfessionalMode; the filters code
  * in this module has always used the same name). Its support flag
@@ -28,12 +28,16 @@ import local.jiege.hook.common.Log;
  * {@code professional} in it and the headline move stands. Night is then pushed into the panel to
  * make room, which is what the reference layout does anyway.
  *
- * <p>The same key also carries XPAN's rank, which is how 485 gets XPAN on screen at all: it is
- * seeded into the panel but lands in the last slot, past where the panel stops drawing. See
- * {@link #promoteXpan}.
+ * <p><b>XPAN (486).</b> 485 tried to raise XPAN's rank inside the panel list, which never worked:
+ * the panel list is {@code night,0,professional,1,highDefinition,2} and XPAN is not in it. Its rank
+ * comes from the mode table instead, and the 485 report shows what that produced —
+ * {@code q(28) -> mRank: 11, mPosition: position_mode_panel}: the mode is in the panel section, so
+ * it only exists behind 更多, and picking it there leaves the 更多 sheet open because that sheet
+ * belongs to the panel the mode is being taken out of. Serving the *headline* list with XPAN
+ * appended puts it in the bar like every other mode and takes 更多 out of the path entirely.
  *
- * <p>Only that key is touched, only for this process, and only for the length of the call that
- * reads it. Escape hatch: {@code touch /data/adb/omnicam_placement_off}.
+ * <p>Only those two keys are touched, only for this process, and only for the length of the call
+ * that reads them. Escape hatch: {@code touch /data/adb/omnicam_placement_off}.
  */
 public final class ModePlacement {
     private static final String TAG = "ModePlacement";
@@ -41,11 +45,14 @@ public final class ModePlacement {
     private static final String CONFIG = "com.oplus.camera.configure.CameraConfig";
     private static final String READER = "u";
     private static final String PANEL = "com.oplus.feature.move.mode.to.panel";
+    private static final String HEADLINE = "com.oplus.feature.move.mode.to.headline";
     private static final String MASTER = "professional";
     /** XPAN's mode name in this firmware's tables ({@code xpan id=28}). */
     private static final String XPAN = "xpan";
-    /** Where XPAN is moved to: inside the part of the panel the UI actually draws. */
-    private static final int XPAN_RANK = 3;
+    /** Where XPAN lands in the bar: after 大师/POP/视频/照片/理光, i.e. the last slot. */
+    private static final int XPAN_HEADLINE_RANK = 6;
+    /** Where XPAN is moved to if it is found in the panel list after all. */
+    private static final int XPAN_PANEL_RANK = 3;
     private static boolean installed;
 
     private ModePlacement() {}
@@ -81,7 +88,12 @@ public final class ModePlacement {
         try {
             XposedBridge.hookMethod(reader, new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
-                    if (!PANEL.equals(param.args[0])) return;
+                    String key = (String) param.args[0];
+                    if (HEADLINE.equals(key)) {
+                        serveHeadline(param);
+                        return;
+                    }
+                    if (!PANEL.equals(key)) return;
                     Object value = param.getResult();
                     if (!(value instanceof List)) return;
                     List<?> original = (List<?>) value;
@@ -95,30 +107,50 @@ public final class ModePlacement {
                         kept.add(item);
                     }
                     boolean changed = kept.size() != original.size();
-                    if (promoteXpan(kept)) changed = true;
+                    if (promoteXpanInPanel(kept)) changed = true;
                     if (!changed) return;
                     param.setResult(kept);
                     log("panel move served: " + kept);
                 }
             });
-            Log.i(TAG, "panel move hooked, 大师模式 goes to the bar, XPAN moves up");
+            Log.i(TAG, "panel move hooked, 大师模式 and XPAN go to the bar");
         } catch (Throwable error) {
             Log.e(TAG, "panel move hook failed", error);
         }
     }
 
     /**
-     * XPAN is seeded into this device's panel by the config profile, but it lands in the last slot —
-     * {@code xpan id=28 position_mode_panel rank=13} in every report since 477 — and the panel stops
-     * drawing before that, so the mode exists in the table and never appears on screen.
+     * Serves {@code com.oplus.feature.move.mode.to.headline} with XPAN appended, which is what puts
+     * it in the mode bar. The list is (mode, rank) pairs, so the entry is two elements.
      *
-     * <p>Moving it is the same mechanism 大师模式 uses: the list this key returns is a list of
-     * (mode, rank) moves, so giving XPAN a lower rank and pushing the modes it passes one slot down
-     * puts it inside the visible part of the panel. Only the order changes; every entry stays.
+     * <p>Left alone when the key is not present (nothing to append to), when XPAN is already in it,
+     * and when the camera has already turned it into a table of another shape.
+     */
+    private static void serveHeadline(XC_MethodHook.MethodHookParam param) {
+        Object value = param.getResult();
+        if (!(value instanceof List)) return;
+        List<?> original = (List<?>) value;
+        if (original.isEmpty() || original.size() % 2 != 0) return;
+        for (int i = 0; i < original.size(); i += 2) {
+            if (XPAN.equals(original.get(i))) return;
+        }
+        ArrayList<Object> moved = new ArrayList<>(original.size() + 2);
+        moved.addAll(original);
+        moved.add(XPAN);
+        moved.add(Integer.valueOf(XPAN_HEADLINE_RANK));
+        param.setResult(moved);
+        log("headline move served: " + moved);
+    }
+
+    /**
+     * XPAN is seeded into this device's panel by the config profile. If it shows up in the panel
+     * move list, give it a lower rank and push the modes it passes one slot down. 486 also puts it
+     * in the headline list, which is the path that actually works; this is the fallback for the
+     * case where a future build seeds it here instead.
      *
      * @return whether the list was modified
      */
-    private static boolean promoteXpan(ArrayList<Object> pairs) {
+    private static boolean promoteXpanInPanel(ArrayList<Object> pairs) {
         int xpan = -1;
         for (int i = 0; i + 1 < pairs.size(); i += 2) {
             if (XPAN.equals(pairs.get(i))) {
@@ -128,13 +160,13 @@ public final class ModePlacement {
         }
         if (xpan < 0) return false;
         int rank = rank(pairs.get(xpan + 1));
-        if (rank < 0 || rank <= XPAN_RANK) return false;
+        if (rank < 0 || rank <= XPAN_PANEL_RANK) return false;
         for (int i = 0; i + 1 < pairs.size(); i += 2) {
             if (i == xpan) continue;
             int other = rank(pairs.get(i + 1));
-            if (other >= XPAN_RANK && other < rank) pairs.set(i + 1, other + 1);
+            if (other >= XPAN_PANEL_RANK && other < rank) pairs.set(i + 1, other + 1);
         }
-        pairs.set(xpan + 1, XPAN_RANK);
+        pairs.set(xpan + 1, XPAN_PANEL_RANK);
         return true;
     }
 

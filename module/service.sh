@@ -49,6 +49,88 @@ PAYLOAD=$MODDIR/payload
 GR_AVAILABLE='0.6(14),1(23),2(47),3(70),6(139),10(230)'
 GR_MARKED='1.2173913(28),1.7391304(40)'
 
+# ---------------------------------------------------------------------------------------------
+# The Meishe renderer: the one system file this build substitutes, and the reason it has to.
+#
+# POP (Polaroid) and GR's four film styles are not BasicTone passes. They are Meishe *renderers*
+# that live in /odm/lib64/libmsnativefilter.so. libAlgoInterface.so opens that file by absolute path
+# (the string "/odm/lib64/libmsnativefilter.so" is in it) and resolves the renderer classes with
+# dlsym, so a renderer the file does not contain cannot be created — there is nothing to fall back
+# to, and the frame comes out empty: a black viewfinder, and a green still.
+#
+# This firmware's file is 7,282,176 bytes / 2,723 exports and is missing exactly the renderers the
+# two broken features need:
+#
+#   CNvPolaroid           0 symbols   POP's Polaroid renderer
+#   CNvFilterCCD          0           CCD
+#   CNvPortra400          0           Portra 400
+#   CNvShapeMask          0           the mask layer GR's looks use
+#   CNvCompoundLutTiled   0           the tiled compound-LUT path
+#   CNvInflation          0
+#
+# The GR style LUTs on this device are ".MS-LUT" **version 2** (gr.posi / gr.nega / gr.bw /
+# gr.hi.bw.rgba.bin), a shape only the newer compound-LUT renderer reads. So one cause explains
+# both reports: POP renders nothing at all, and GR is fine on 标准 (no filter) and black on the
+# other four.
+#
+# Why substituting it is not "replacing a system library" in the sense this project forbids:
+#   * libAlgoInterface.so, libBasicTonePhoto*.so, libBasicTonePhotoX9/X10.so and every ODM config
+#     stay byte-for-byte as the firmware shipped them;
+#   * libmsnativefilter.so is a GPU filter renderer, reached through dlopen/dlsym, so a symbol the
+#     substitute lacks fails that one filter instead of failing the load;
+#   * every one of the 16 Meishe symbols libAlgoInterface.so currently resolves is still exported by
+#     the substitute (checked by name before this was shipped), and it adds three more:
+#     MsRenderHardwareBuffer, MsSetFacePoints, MsSetStarFilterAngles. Nothing is lost.
+#
+# Escape hatch: touch /data/adb/omnicam_msfilter_off and reboot, or press this module's action
+# button in KernelSU. Nothing else in the module depends on the swap.
+MSFILTER_OFF=/data/adb/omnicam_msfilter_off
+MSFILTER_SRC=$PAYLOAD/msfilter/libmsnativefilter.so
+MSFILTER_DST=/odm/lib64/libmsnativefilter.so
+MSFILTER_BYTES=10957976
+
+msfilter_bind() {
+    [ -f "$MSFILTER_OFF" ] && { echo "msfilter: off ($MSFILTER_OFF)" >> "$MODDIR/bind.log"; return 0; }
+    [ -f "$MSFILTER_SRC" ] || { echo "msfilter: payload absent" >> "$MODDIR/bind.log"; return 0; }
+    [ -f "$MSFILTER_DST" ] || { echo "msfilter: $MSFILTER_DST absent" >> "$MODDIR/bind.log"; return 0; }
+    # Already the substitute: nothing to do (a soft reboot can keep the bind from the last run).
+    if [ "$(wc -c < "$MSFILTER_DST")" = "$MSFILTER_BYTES" ]; then
+        echo "msfilter: already in place" >> "$MODDIR/bind.log"
+        return 0
+    fi
+    # A firmware that already ships the Polaroid renderer needs no substitute, and gets none.
+    if grep -qa CNvPolaroid "$MSFILTER_DST"; then
+        echo "msfilter: stock already has CNvPolaroid, left alone" >> "$MODDIR/bind.log"
+        return 0
+    fi
+    chown root:root "$MSFILTER_SRC" 2>/dev/null
+    chmod 0644 "$MSFILTER_SRC"
+    # Same SELinux label as the file it covers; the explicit context is the fallback.
+    chcon --reference="$MSFILTER_DST" "$MSFILTER_SRC" 2>/dev/null \
+        || chcon u:object_r:same_process_hal_file:s0 "$MSFILTER_SRC" 2>/dev/null
+    # The mount has to land in init's namespace or the camera never sees it.
+    if [ "$(readlink /proc/self/ns/mnt)" != "$(readlink /proc/1/ns/mnt)" ] && command -v nsenter > /dev/null 2>&1; then
+        nsenter -t 1 -m -- mount --bind "$MSFILTER_SRC" "$MSFILTER_DST" >> "$MODDIR/bind.log" 2>&1
+        MSFILTER_RESULT=$?
+    else
+        mount --bind "$MSFILTER_SRC" "$MSFILTER_DST" >> "$MODDIR/bind.log" 2>&1
+        MSFILTER_RESULT=$?
+    fi
+    if [ "$MSFILTER_RESULT" = "0" ]; then
+        if grep -qa CNvPolaroid "$MSFILTER_DST"; then
+            echo "msfilter: renderer in place, $(wc -c < "$MSFILTER_DST") bytes, CNvPolaroid present" >> "$MODDIR/bind.log"
+        else
+            echo "msfilter: bound but CNvPolaroid is still absent — wrong payload" >> "$MODDIR/bind.log"
+        fi
+    else
+        echo "msfilter: BIND FAILED ($MSFILTER_RESULT), POP and the GR film styles keep the stock renderer" >> "$MODDIR/bind.log"
+    fi
+}
+
+# Runs before the app-data wait: /odm/lib64 does not depend on the unlock, and the camera must not
+# start on the stock renderer.
+msfilter_bind
+
 # A bounded wait: a boot must not stall forever if the camera is not installed.
 wait_for() {
     DIR=$1

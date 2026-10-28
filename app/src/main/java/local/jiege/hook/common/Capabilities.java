@@ -6,19 +6,27 @@ import java.io.FileInputStream;
 /**
  * What this device can actually do, probed once per process before any feature installs.
  *
- * <p>This module never replaces a system library or an ODM config. That is the whole design rule, and
+ * <p>This module does not replace the algorithm stack or an ODM config. That is the design rule, and
  * it is what the previous full port got wrong: it bind-mounted Find X9 Ultra's libAlgoInterface.so,
  * libBasicTonePhoto.so and camera configs over the device's own, and on a phone whose SoC, struct
  * layouts and config encryption differ that takes the camera down before the viewfinder ever opens.
  *
- * <p>So every feature is rebuilt on top of the device's own files. Where a feature genuinely needs
- * something this device does not have, the probe below says so and the feature is skipped at install
- * time instead of half-installing.
+ * <p>There is exactly one exception, added in 486: {@code /odm/lib64/libmsnativefilter.so}, the
+ * Meishe GPU filter <em>renderer</em>. POP and GR's film styles are renderers inside that file, and
+ * this firmware's copy simply does not contain them, so those features cannot exist without it.
+ * It is reached through {@code dlopen}/{@code dlsym} rather than linked, every symbol
+ * {@code libAlgoInterface.so} currently resolves from it is still exported by the substitute, and
+ * the substitution is gated, logged and revertible — see {@link #renderer()}.
+ *
+ * <p>So every other feature is rebuilt on top of the device's own files. Where a feature genuinely
+ * needs something this device does not have, the probe below says so and the feature is skipped at
+ * install time instead of half-installing.
  *
  * <p>Three groups:
  * <ul>
- *   <li>data layer — the module's LUT / basictone / watermark payload, bind-mounted additively by
- *       post-fs-data.sh. {@link #dataLayer()}.</li>
+ *   <li>data layer — the module's LUT / basictone / watermark payload, shipped as a module
+ *       filesystem layer under {@code system/odm/etc/camera} and mounted by magic mount.
+ *       {@link #dataLayer()}.</li>
  *   <li>tuning host — the stock LMT directory the master colour and GR engines serve tables from.
  *       {@link #lmt()}.</li>
  *   <li>config shape — whether the camera's decision config is plain text (patchable, as on X9 Ultra)
@@ -79,6 +87,11 @@ public final class Capabilities {
     private static volatile String dataRoot;
     private static volatile boolean dataRootProbed;
     private static volatile long dataRootProbeAt;
+
+    /** The Meishe GPU filter renderer. The one file this build substitutes — see {@link #renderer()}. */
+    public static final String MSFILTER = "/odm/lib64/libmsnativefilter.so";
+    /** Byte size of the renderer the module ships; the stock one on this firmware is 7282176. */
+    public static final long MSFILTER_BYTES = 10957976L;
 
     private Capabilities() {}
 
@@ -192,6 +205,39 @@ public final class Capabilities {
      */
     public static long grTableBytes() {
         return new File(grLmtDir() + "/SCLut0").length();
+    }
+
+    /**
+     * The Meishe GPU filter renderer, and the one file this build substitutes.
+     *
+     * <p>POP (Polaroid) and GR's four film styles are Meishe <em>renderers</em>, not BasicTone
+     * passes. {@code libAlgoInterface.so} opens {@code /odm/lib64/libmsnativefilter.so} by absolute
+     * path and resolves those classes with {@code dlsym}, so a renderer the file does not carry
+     * cannot be created and there is nothing to fall back to: the frame comes out empty, which is a
+     * black viewfinder and a green still.
+     *
+     * <p>This firmware's file is 7282176 bytes / 2723 exports and has no {@code CNvPolaroid},
+     * {@code CNvFilterCCD}, {@code CNvPortra400}, {@code CNvShapeMask},
+     * {@code CNvCompoundLutTiled} or {@code CNvInflation}. The GR style LUTs on this device are
+     * {@code .MS-LUT} version 2, a shape only the newer compound-LUT renderer reads — which is why
+     * GR is fine on 标准 and black on the other four, and why POP renders nothing at all.
+     *
+     * <p>{@code service.sh} binds the module's copy over it unless the stock file already carries
+     * the Polaroid renderer or {@code /data/adb/omnicam_msfilter_off} exists. Reported here so a
+     * bug report says which renderer the camera actually loaded.
+     */
+    public static String renderer() {
+        File file = new File(MSFILTER);
+        if (!file.isFile()) return "missing (" + MSFILTER + ")";
+        long bytes = file.length();
+        if (bytes == MSFILTER_BYTES) return "module (" + bytes + " bytes, has CNvPolaroid)";
+        return "stock (" + bytes + " bytes, no Polaroid/CCD/Portra400 renderer)";
+    }
+
+    /** Whether the module's renderer is the one in place, i.e. whether POP and GR filters can render. */
+    public static boolean rendererReplaced() {
+        File file = new File(MSFILTER);
+        return file.isFile() && file.length() == MSFILTER_BYTES;
     }
 
     /**

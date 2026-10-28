@@ -41,6 +41,7 @@ import local.jiege.hook.softlight.SoftLight;
 import local.jiege.hook.tilt.TiltShiftCapture;
 import local.jiege.hook.unlock25mp.Unlock25mp;
 import local.jiege.hook.video.VideoFilterHighSpec;
+import local.jiege.hook.watermark.HasselWatermark;
 import local.jiege.hook.watermark.ModelSpoof;
 import local.jiege.hook.watermark.VideoWatermarkGuard;
 import local.jiege.hook.watermark.XpanWatermarkIsolation;
@@ -91,6 +92,9 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
 
         Install.run("相册地址跳转", true, "", () -> AddressNavigation.installGallery(classLoader));
         Install.run("水印系列解锁", true, "", () -> WatermarkSeriesUnlock.installGallery(classLoader));
+        // 486: the HASSELBLAD group of the master-watermark list is built from a count this realme
+        // build answers 0 for, so the heading shows with nothing under it. The artwork is in the APK.
+        Install.run("哈苏水印分组", true, "", () -> HasselWatermark.installGallery(classLoader));
         Install.run("批量水印", true, "", () -> BatchWatermark.installGallery(classLoader));
         Install.run("GR 相册水印", data, noData, () -> GrPort.installGallery(classLoader));
         Install.run("相册调色板", data, noData, () -> GalleryColorPalette.installGallery(classLoader));

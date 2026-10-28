@@ -79,13 +79,26 @@ internal class InjectionState(val checks: List<Check>, val health: Health) {
             val checks = ArrayList<Check>()
             val lsposed = MasterFilters.visibleToCamera(context)
             checks += Check("LSPosed", lsposed, if (lsposed) "模块已激活" else "模块未激活，在 LSPosed 中启用并勾选相机、相册、系统框架")
-            // This build never replaces a system library or an ODM config; the module only mounts the
-            // data layer (LUTs, basictone, GR LMT, watermark artwork), so that is what is checked.
+            // The module only mounts a data layer (LUTs, basictone, GR LMT, watermark artwork) and,
+            // since 486, substitutes the Meishe renderer — the algorithm stack and the ODM configs
+            // are never touched. Both are checked, one line each.
             val mounted = moduleMounted()
             checks += Check(
                 "KSU 模块",
                 mounted,
                 if (mounted) "模块数据可读（/odm 模块层）" else "数据未挂载：确认 KernelSU 里本模块已启用、magic_mount_rs 元模块已安装，然后重启手机",
+            )
+            // 486: POP and GR's film styles are Meishe renderers, not BasicTone passes, and this
+            // firmware's libmsnativefilter.so does not contain them. service.sh binds the module's
+            // copy over it; this line says whether that happened, because "POP is black" and "the
+            // renderer was never replaced" are the same sentence from the outside.
+            val renderer = Capabilities.renderer()
+            val rendererOk = Capabilities.rendererReplaced()
+            checks += Check(
+                "Meishe 渲染器",
+                rendererOk,
+                if (rendererOk) "已替换为模块版本，POP 与 GR 胶片滤镜可渲染"
+                else "原厂版本（$renderer）：POP 与 GR 的四款胶片滤镜无法渲染。在 KernelSU 里点本模块的“执行”按钮开启替换，然后重启手机",
             )
             val updated = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
             // A process still running hooks from the previous module APK only needs a restart.

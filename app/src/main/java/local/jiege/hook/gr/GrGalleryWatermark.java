@@ -17,6 +17,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.lang.reflect.Method;
 import java.util.List;
+import local.jiege.hook.common.Capabilities;
 import local.jiege.hook.common.Log;
 import local.jiege.hook.common.OptionalHook;
 import local.jiege.hook.common.Symbols;
@@ -25,11 +26,21 @@ import local.jiege.hook.common.Symbols;
  * GR port, gallery process (com.coloros.gallery3d): the GR watermark in the photo editor.
  *
  * The gallery has the GR watermark UI but gates it behind feature flags this device lacks, and
- * lacks the realme GR artwork. service.sh stages gr_style_*.json and the logos in
- * files/ricoh_gr_styles; these hooks open the gates and serve the artwork from there.
+ * lacks the realme GR artwork. These hooks open the gates and serve the artwork.
  * Photos taken in GR mode carry gr.effect.info; the editor offers the GR watermark for a photo
  * only when that block was read, which the gallery does for realme-branded watermarks only.
  * Obfuscated gallery classes and members are symbols (assets/symbols.json, "gallery").
+ *
+ * <p><b>Where the artwork is read from (486).</b> Until 485 this only looked in
+ * {@code files/ricoh_gr_styles} of the gallery's own data directory, which {@code service.sh} fills.
+ * The 486 report shows that copy never arrives — {@code gallery GR style missing
+ * /data/user/0/com.coloros.gallery3d/files/ricoh_gr_styles/gr_style_4.json} — because that directory
+ * belongs to an app, so it only exists after the user unlocks and only if the gallery was started;
+ * a boot that does not reach either leaves the styles un-staged, and the module then quietly serves
+ * the APK's own GR styles instead of the ones it ships. The mount layer at
+ * {@code /odm/etc/camera/basictone/mode_limit_watermark} has carried the same files since 485 and is
+ * world-readable from the first second of the boot, so it is tried first and the private directory
+ * stays as the fallback.
  */
 public final class GrGalleryWatermark {
     private static final String TAG = "RicohGrPort";
@@ -56,7 +67,11 @@ public final class GrGalleryWatermark {
                 new XC_MethodHook() {
                     @Override protected void beforeHookedMethod(MethodHookParam param) {
                         Object feature = param.args[0];
-                        if ("feature_is_camera_gr_supported".equals(feature) || "feature_is_support_hassel_watermark".equals(feature)) {
+                        if ("feature_is_camera_gr_supported".equals(feature)
+                            || "feature_is_support_hassel_watermark".equals(feature)
+                            // 486: the personalised-watermark editor asks this before it builds the
+                            // 哈苏 group; on a realme build the answer is no and the group is skipped.
+                            || "feature_is_support_hassel_device".equals(feature)) {
                             param.setResult(Boolean.TRUE);
                         }
                     }
@@ -100,9 +115,11 @@ public final class GrGalleryWatermark {
                         try {
                             String fileName = styleFileName((String) symbols.get("AssetStyleSource.name", param.thisObject));
                             if (fileName == null) return;
-                            File style = new File(STYLE_DIR, fileName);
-                            if (!style.isFile()) {
-                                Log.i(TAG, "gallery GR style missing " + style);
+                            File style = staged(fileName);
+                            if (style == null) {
+                                Log.i(TAG, "gallery GR style missing, both "
+                                    + new File(Capabilities.modeLimitDir(), fileName) + " and "
+                                    + new File(STYLE_DIR, fileName));
                                 return;
                             }
                             param.setResult(new FileInputStream(style));
@@ -124,15 +141,25 @@ public final class GrGalleryWatermark {
         return name;
     }
 
-    /** realme GR logos and sketches, requested as drawables of the gallery, come from STYLE_DIR. */
+    /**
+     * The mount layer first, then the gallery's own staged copy: the layer is mounted before any
+     * process starts and needs no unlock, the private copy depends on service.sh having got there.
+     */
+    private static File staged(String fileName) {
+        File layered = new File(Capabilities.modeLimitDir(), fileName);
+        if (layered.isFile()) return layered;
+        File privateCopy = new File(STYLE_DIR, fileName);
+        return privateCopy.isFile() ? privateCopy : null;
+    }
+
+    /** realme GR logos and sketches, requested as drawables of the gallery, come from the layer. */
     private static File artworkFile(Resources resources, int id) {
         if (resources == null || id == 0) return null;
         try {
             String name = resources.getResourceEntryName(id);
             if (name == null || !(name.startsWith("realme_gr") || name.startsWith("sketch_realme_gr")
                     || name.startsWith("sketch_camera_realme_gr") || name.startsWith("watermark_camera_realme_gr"))) return null;
-            File file = new File(STYLE_DIR, name + ".webp");
-            return file.isFile() ? file : null;
+            return staged(name + ".webp");
         } catch (Throwable error) {
             return null;
         }

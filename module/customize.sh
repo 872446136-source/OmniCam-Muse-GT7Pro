@@ -2,12 +2,18 @@
 # points at it before the reboot that activates the module. A failed install (e.g. a different
 # signing key) is left as it is and logged to install.log; the installed app is never uninstalled.
 
-# One build for every device: the payload carries only the data layer (LUTs, basictone, GR LMT,
-# watermark artwork), never a system library. A device whose camera config the module cannot
-# substitute keeps working, because the features that need it turn themselves off at install time.
+# One build for every device: the payload carries the data layer (LUTs, basictone, GR LMT, watermark
+# artwork) plus, since 486, the Meishe GPU renderer that POP and GR's film styles live in. The
+# algorithm stack (libAlgoInterface, libBasicTonePhoto*) and every ODM config are never substituted.
+# A device whose camera config the module cannot substitute keeps working, because the features that
+# need it turn themselves off at install time.
 if [ ! -d "$MODPATH/payload" ]; then
     ui_print "- WARNING: payload missing, only the app-layer features will run"
 fi
+
+# KernelSU runs this file directly when the user presses the module card's action button, so it has
+# to be executable. Everything else is invoked through sh.
+[ -f "$MODPATH/action.sh" ] && chmod 0755 "$MODPATH/action.sh"
 
 PACKAGE=local.jiege.camera
 APK=$(ls "$MODPATH"/omnicam-muse-*.apk 2>/dev/null | head -n 1)

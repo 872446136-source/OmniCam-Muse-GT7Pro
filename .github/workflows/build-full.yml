@@ -163,11 +163,11 @@ jobs:
                  module/payload/pld_watermark module/payload/apk_resources module/payload/setting_Retro
           du -sh module/payload/*
 
-      - name: Meishe renderer payload
+      - name: Meishe renderer in the mount layer
         run: |
           set -eux
-          # 486. The one system file this build substitutes: /odm/lib64/libmsnativefilter.so, the GPU
-          # filter renderer. POP (Polaroid) and GR's four film styles are renderers inside it, and
+          # 486/487. The one system file this build substitutes: /odm/lib64/libmsnativefilter.so, the
+          # GPU filter renderer. POP (Polaroid) and GR's four film styles are renderers inside it, and
           # this firmware's copy (7282176 bytes, 2723 exports) has none of them:
           #   CNvPolaroid 0, CNvFilterCCD 0, CNvPortra400 0, CNvShapeMask 0, CNvCompoundLutTiled 0.
           # libAlgoInterface.so dlopens the file by absolute path, so a missing renderer cannot be
@@ -175,17 +175,22 @@ jobs:
           # resolves is still exported by this copy, and it adds MsRenderHardwareBuffer,
           # MsSetFacePoints and MsSetStarFilterAngles; nothing is lost.
           #
-          # service.sh binds it in late_start (after magic mount), gated on the stock file not
-          # already having CNvPolaroid, and /data/adb/omnicam_msfilter_off turns it off.
-          mkdir -p module/payload/msfilter
-          cp -a tools/msfilter/libmsnativefilter.so module/payload/msfilter/libmsnativefilter.so
-          test "$(wc -c < module/payload/msfilter/libmsnativefilter.so)" = 10957976
+          # 486 shipped it as a payload that service.sh bind-mounted, and the 486 report shows that
+          # never took effect: the settings page still read the stock 7282176-byte file. So it moves
+          # into the mount layer, next to the /odm/etc/camera data that 485 already proved mounts on
+          # this phone. magic mount puts it in place before any app starts, and service.sh keeps a
+          # bind as the fallback for a phone without a metamodule.
+          LAYER=module/system/odm/lib64
+          mkdir -p "$LAYER"
+          cp -a tools/msfilter/libmsnativefilter.so "$LAYER/libmsnativefilter.so"
+          test "$(wc -c < "$LAYER/libmsnativefilter.so")" = 10957976
           # The renderer must carry what the two features need; a truncated or wrong file is a
           # silent black viewfinder, which is exactly the bug this step exists to fix.
           for SYMBOL in CNvPolaroid CNvPortra400 CNvFilterCCD CNvShapeMask; do
-            grep -qa "$SYMBOL" module/payload/msfilter/libmsnativefilter.so
+            grep -qa "$SYMBOL" "$LAYER/libmsnativefilter.so"
           done
-          du -sh module/payload/msfilter
+          ls -l "$LAYER"
+          du -sh module/system
 
       - name: Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -224,16 +229,18 @@ jobs:
           # exists to remove. Since 486 there is exactly one allowed exception — the Meishe GPU
           # renderer, which POP and GR's film styles cannot exist without — and it is named here so
           # any *other* library still fails the build. The only system tree allowed is the data layer
-          # under system/odm/etc/camera: no /system library, no vendor config, no camera_unit_config.
+          # under system/odm/etc/camera plus that one file under system/odm/lib64: no other /system
+          # library, no vendor config, no camera_unit_config.
           if unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep '\.so$' \
-              | grep -v '^payload/msfilter/libmsnativefilter\.so$'; then
+              | grep -v '^system/odm/lib64/libmsnativefilter\.so$'; then
             echo "::error::the module zip carries a library other than the Meishe renderer"
             exit 1
           fi
-          unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep -qx 'payload/msfilter/libmsnativefilter.so' \
-            || { echo "::error::the Meishe renderer payload is missing"; exit 1; }
-          if unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep '^system/' | grep -v '^system/odm/etc/camera/'; then
-            echo "::error::the module zip carries a system tree outside system/odm/etc/camera"
+          unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep -qx 'system/odm/lib64/libmsnativefilter.so' \
+            || { echo "::error::the Meishe renderer is missing from the mount layer"; exit 1; }
+          if unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep '^system/' \
+              | grep -v '^system/odm/etc/camera/' | grep -v '^system/odm/lib64/libmsnativefilter\.so$'; then
+            echo "::error::the module zip carries a system tree outside the two allowed paths"
             exit 1
           fi
           for NAME in basictone/lmt_gr/SCLut0 basictone/lmt_gr/LMTLut0 \
@@ -247,9 +254,8 @@ jobs:
           done
           unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c . || true
           # What is left in payload/ is only what service.sh writes into an app's own data
-          # directory, plus the renderer it binds over /odm/lib64: the master-colour engine, the
-          # gallery's watermark styles, the IPU jar, the Meishe renderer.
-          for DIR in master_color watermark_master_styles watermark_drawables ipu msfilter; do
+          # directory: the master-colour engine, the gallery's watermark styles, the IPU jar.
+          for DIR in master_color watermark_master_styles watermark_drawables ipu; do
             printf '%s %s\n' "$DIR" "$(unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c "payload/$DIR/")"
           done
           du -h OmniCam-Muse-GT7Pro-KSU.zip OmniCam-Muse-GT7Pro.apk

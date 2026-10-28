@@ -82,25 +82,45 @@ GR_MARKED='1.2173913(28),1.7391304(40)'
 #     the substitute (checked by name before this was shipped), and it adds three more:
 #     MsRenderHardwareBuffer, MsSetFacePoints, MsSetStarFilterAngles. Nothing is lost.
 #
-# Escape hatch: touch /data/adb/omnicam_msfilter_off and reboot, or press this module's action
-# button in KernelSU. Nothing else in the module depends on the swap.
+# Where the file comes from (487): it is part of the mount layer, at
+# system/odm/lib64/libmsnativefilter.so, so magic mount puts it in place before any app starts —
+# the same mechanism that already carries /odm/etc/camera and that 485/486 proved works. 486 tried to
+# bind it from service.sh alone and the 486 report says that never happened: the settings page still
+# read the stock 7282176-byte file. A script binding into /odm/lib64 depends on which mount namespace
+# KernelSU hands service.sh, and nothing in the report could tell that apart from a failed mount
+# because bind.log was not part of the export. Both are fixed: the layer is the primary path, and
+# the bind below is kept as the fallback for a phone without a mount metamodule.
+#
+# Escape hatch: press this module's action button in KernelSU (it moves the file out of the layer
+# and back), or `touch /data/adb/omnicam_msfilter_off`, then reboot. Nothing else depends on it.
 MSFILTER_OFF=/data/adb/omnicam_msfilter_off
-MSFILTER_SRC=$PAYLOAD/msfilter/libmsnativefilter.so
+MSFILTER_SRC=$MODDIR/system/odm/lib64/libmsnativefilter.so
 MSFILTER_DST=/odm/lib64/libmsnativefilter.so
 MSFILTER_BYTES=10957976
+MSFILTER_LOG=$MODDIR/bind.log
+
+msfilter_log() {
+    echo "msfilter: $1" >> "$MSFILTER_LOG"
+    # A second copy the settings app can read without root, so a report always carries it.
+    echo "msfilter: $1" >> /data/local/tmp/omnicam-bind.log 2>/dev/null
+}
 
 msfilter_bind() {
-    [ -f "$MSFILTER_OFF" ] && { echo "msfilter: off ($MSFILTER_OFF)" >> "$MODDIR/bind.log"; return 0; }
-    [ -f "$MSFILTER_SRC" ] || { echo "msfilter: payload absent" >> "$MODDIR/bind.log"; return 0; }
-    [ -f "$MSFILTER_DST" ] || { echo "msfilter: $MSFILTER_DST absent" >> "$MODDIR/bind.log"; return 0; }
-    # Already the substitute: nothing to do (a soft reboot can keep the bind from the last run).
+    [ -f "$MSFILTER_OFF" ] && { msfilter_log "off ($MSFILTER_OFF), the layer copy is not used"; return 0; }
+    [ -f "$MSFILTER_DST" ] || { msfilter_log "$MSFILTER_DST absent, nothing to cover"; return 0; }
+    # Already the substitute: the layer mounted it (the normal case since 487), or a soft reboot kept
+    # the bind from the last run. Either way there is nothing left to do.
     if [ "$(wc -c < "$MSFILTER_DST")" = "$MSFILTER_BYTES" ]; then
-        echo "msfilter: already in place" >> "$MODDIR/bind.log"
+        msfilter_log "in place, $(wc -c < "$MSFILTER_DST") bytes, CNvPolaroid $(grep -qa CNvPolaroid "$MSFILTER_DST" && echo present || echo ABSENT)"
         return 0
     fi
     # A firmware that already ships the Polaroid renderer needs no substitute, and gets none.
     if grep -qa CNvPolaroid "$MSFILTER_DST"; then
-        echo "msfilter: stock already has CNvPolaroid, left alone" >> "$MODDIR/bind.log"
+        msfilter_log "stock already has CNvPolaroid, left alone"
+        return 0
+    fi
+    if [ ! -f "$MSFILTER_SRC" ]; then
+        msfilter_log "stock renderer ($(wc -c < "$MSFILTER_DST") bytes) and no layer copy at $MSFILTER_SRC — the mount layer did not carry it"
         return 0
     fi
     chown root:root "$MSFILTER_SRC" 2>/dev/null
@@ -110,25 +130,27 @@ msfilter_bind() {
         || chcon u:object_r:same_process_hal_file:s0 "$MSFILTER_SRC" 2>/dev/null
     # The mount has to land in init's namespace or the camera never sees it.
     if [ "$(readlink /proc/self/ns/mnt)" != "$(readlink /proc/1/ns/mnt)" ] && command -v nsenter > /dev/null 2>&1; then
-        nsenter -t 1 -m -- mount --bind "$MSFILTER_SRC" "$MSFILTER_DST" >> "$MODDIR/bind.log" 2>&1
+        nsenter -t 1 -m -- mount --bind "$MSFILTER_SRC" "$MSFILTER_DST" >> "$MSFILTER_LOG" 2>&1
         MSFILTER_RESULT=$?
     else
-        mount --bind "$MSFILTER_SRC" "$MSFILTER_DST" >> "$MODDIR/bind.log" 2>&1
+        mount --bind "$MSFILTER_SRC" "$MSFILTER_DST" >> "$MSFILTER_LOG" 2>&1
         MSFILTER_RESULT=$?
     fi
     if [ "$MSFILTER_RESULT" = "0" ]; then
         if grep -qa CNvPolaroid "$MSFILTER_DST"; then
-            echo "msfilter: renderer in place, $(wc -c < "$MSFILTER_DST") bytes, CNvPolaroid present" >> "$MODDIR/bind.log"
+            msfilter_log "bound in place, $(wc -c < "$MSFILTER_DST") bytes, CNvPolaroid present"
         else
-            echo "msfilter: bound but CNvPolaroid is still absent — wrong payload" >> "$MODDIR/bind.log"
+            msfilter_log "bound but CNvPolaroid is still absent — wrong payload"
         fi
     else
-        echo "msfilter: BIND FAILED ($MSFILTER_RESULT), POP and the GR film styles keep the stock renderer" >> "$MODDIR/bind.log"
+        msfilter_log "BIND FAILED ($MSFILTER_RESULT); the mount layer is the only path left, check that a metamodule is installed"
     fi
 }
 
 # Runs before the app-data wait: /odm/lib64 does not depend on the unlock, and the camera must not
 # start on the stock renderer.
+: > /data/local/tmp/omnicam-bind.log 2>/dev/null
+chmod 0644 /data/local/tmp/omnicam-bind.log 2>/dev/null
 msfilter_bind
 
 # A bounded wait: a boot must not stall forever if the camera is not installed.

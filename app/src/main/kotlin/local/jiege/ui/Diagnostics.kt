@@ -266,6 +266,20 @@ internal object LogExport {
             put("设置.txt", settings(context))
             runCatching { MasterFilters.store(context).configText() }.getOrNull()?.let { put("大师滤镜配置.txt", it) }
             put("应用日志.txt", ownLogcat())
+            // 487: what the module's own scripts did at boot. 486 shipped a Meishe renderer bind whose
+            // only record was bind.log inside the module directory, and the report came back without
+            // it — so "the renderer was not replaced" could not be told apart from "the mount failed".
+            // It is in the export now, from both places service.sh writes it to.
+            val module = rootCommand(
+                "cat /data/local/tmp/omnicam-bind.log 2>/dev/null; " +
+                    "for d in /data/adb/modules/*; do " +
+                    "if [ -f \$d/bind.log ] || [ -f \$d/action.log ]; then echo \"== \$d\"; " +
+                    "tail -n 120 \$d/bind.log 2>/dev/null; tail -n 40 \$d/action.log 2>/dev/null; fi; done; " +
+                    "echo '== module.prop'; cat /data/adb/modules/ricoh_pop_x9u/module.prop 2>/dev/null | head -5; " +
+                    "echo '== renderer on disk'; ls -l /odm/lib64/libmsnativefilter.so 2>/dev/null; " +
+                    "echo '== layer copy'; ls -l /data/adb/modules/ricoh_pop_x9u/system/odm/lib64/ 2>/dev/null",
+                15)
+            if (module != null) put("模块日志.txt", module)
             val lspd = rootCommand("for f in \$(ls -t /data/adb/lspd/log/*.log 2>/dev/null | head -4); do echo \"== \$f\"; tail -n 3000 \"\$f\"; done", 15)
             if (lspd != null) put("LSPosed.txt", lspd)
             val logcat = rootCommand("logcat -d -b main,system,crash -t 20000", 15)

@@ -46,6 +46,14 @@ import local.jiege.hook.common.Log;
  * from this APK. A list that already has the group is passed through untouched.
  *
  * <p>Escape hatch: {@code touch /data/adb/omnicam_hasselwm_off}.
+ *
+ * <p><b>487: the hook above never ran.</b> The 486 report has {@code hassel style list hooked} and
+ * nothing after it — the watermark page was open at 01:20:43 and {@code getBuiltInHasselStyles} was
+ * not called once in that whole session, so this build's list is assembled somewhere else. Rather
+ * than guess again, this version also logs what the section really builds: {@code getSeries(String)}
+ * is the companion method the grouping calls once per style id, and it is not obfuscated, so a
+ * single line list of the ids that pass through it says outright whether {@code hassel_style_*} is
+ * in the list at all. The fill stays for the case where the method is on the path.
  */
 public final class HasselWatermark {
     private static final String TAG = "HasselWatermark";
@@ -95,6 +103,49 @@ public final class HasselWatermark {
                 }
             });
         Log.i(TAG, "hassel style list hooked");
+        probeSeries(companion);
+    }
+
+    /**
+     * Read-only: the style ids the grouping actually walks, logged once per sixteen ids. If
+     * {@code hassel_style_*} never shows up here the list is built elsewhere and the next report
+     * says where to look; if it does show up, the group exists and the empty section is a rendering
+     * problem instead. A hassel id is logged the moment it appears, whenever that is.
+     */
+    private static void probeSeries(Class<?> companion) {
+        try {
+            XposedHelpers.findAndHookMethod(companion, "getSeries", String.class, new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    Object id = param.args[0];
+                    if (!(id instanceof String)) return;
+                    String style = (String) id;
+                    boolean hassel = style.startsWith("hassel");
+                    int count;
+                    synchronized (seen) {
+                        seen.add(style);
+                        count = seen.size();
+                    }
+                    if (hassel || count % 16 == 0) Log.i(TAG, "styles seen (" + count + "): " + join());
+                }
+            });
+            Log.i(TAG, "style series probe armed");
+        } catch (Throwable error) {
+            Log.i(TAG, "style series probe unavailable: " + error);
+        }
+    }
+
+    /** The ids the grouping has walked, in the order they first appeared. */
+    private static final java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+
+    private static String join() {
+        synchronized (seen) {
+            StringBuilder text = new StringBuilder();
+            for (String id : seen) {
+                if (text.length() > 0) text.append(',');
+                text.append(id);
+            }
+            return text.toString();
+        }
     }
 
     /**

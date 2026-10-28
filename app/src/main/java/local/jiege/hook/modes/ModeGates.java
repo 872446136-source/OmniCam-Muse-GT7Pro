@@ -374,9 +374,12 @@ public final class ModeGates {
                         int index = indexOfSize((String) key);
                         if (index < 0) return;
                         Object answer = param.getResult();
-                        if (answer != null) {
-                            if (SEEN.add("size:" + key)) log(key + " came from the config: " + answer);
-                            return;
+                        if (answer instanceof android.util.Size) {
+                            android.util.Size found = (android.util.Size) answer;
+                            if (found.getWidth() > 0 && found.getHeight() > 0) {
+                                if (SEEN.add("size:" + key)) log(key + " came from the config: " + found);
+                                return;
+                            }
                         }
                         android.util.Size size = sizeOf(SIZE_VALUES[index]);
                         if (size == null) return;

@@ -272,7 +272,24 @@ if [ -d "$BASICTONE_DST" ]; then
     rm -rf "$BASICTONE_DST"
     echo "removed the 484 basictone copy: the module layer is the only source now" >> "$MODDIR/bind.log"
 fi
-echo "layer: lmt_gr=$(ls /odm/etc/camera/basictone/lmt_gr 2>/dev/null | wc -l) pop=$(ls /odm/etc/camera/basictone/pop_port 2>/dev/null | wc -l) retro=$(ls /odm/etc/camera/basictone/setting_Retro 2>/dev/null | wc -l) wm=$(ls /odm/etc/camera/basictone/mode_limit_watermark 2>/dev/null | wc -l)" >> "$MODDIR/bind.log"
+
+# The same leftover, one directory over, and it is why one POP filter renders black (488).
+#
+# pop_path_remap.cpp serves reads of /odm/etc/camera/meishe_lut/<name> from
+# files/pop_port/meishe_lut/<name> **when that file exists**, and only falls through to the layer
+# when it does not. 484 created that copy; 485 stopped creating it but never removed it, so on a
+# phone that has been upgraded from 484 the camera still reads a partial, months-old set of LUTs for
+# the filters that happen to be in it, and the layer for the rest. That is exactly the 487 report:
+# POP renders every filter except 正片胶片浓郁, which is the one whose LUT is stale or missing there.
+#
+# With the copy gone the remap finds nothing, falls through, and every POP LUT comes from the single
+# source the layer carries. Removing it is safe: nothing writes to it any more.
+POP_LUT_DST=$APP/files/pop_port
+if [ -d "$POP_LUT_DST" ]; then
+    rm -rf "$POP_LUT_DST"
+    echo "removed the 484 pop_port copy: the layer is the only POP LUT source now" >> "$MODDIR/bind.log"
+fi
+echo "layer: lmt_gr=$(ls /odm/etc/camera/basictone/lmt_gr 2>/dev/null | wc -l) pop=$(ls /odm/etc/camera/basictone/pop_port 2>/dev/null | wc -l) retro=$(ls /odm/etc/camera/basictone/setting_Retro 2>/dev/null | wc -l) wm=$(ls /odm/etc/camera/basictone/mode_limit_watermark 2>/dev/null | wc -l) ms=$(ls /odm/etc/camera/meishe_lut 2>/dev/null | wc -l)" >> "$MODDIR/bind.log"
 
 wait_for "$GALLERY" 120 || exit 0
 GALLERY_UID=$(stat -c %u "$GALLERY")

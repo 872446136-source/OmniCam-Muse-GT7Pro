@@ -45,5 +45,12 @@ public final class PopPort {
         } catch (Throwable error) {
             Log.e(TAG, "POP SDR style hook unavailable", error);
         }
+        if (mainProcess) {
+        try {
+            PopFilterGate.install(classLoader);
+        } catch (Throwable error) {
+            Log.e(TAG, "POP filter gate unavailable", error);
+        }
+        }
     }
 }

@@ -114,15 +114,61 @@ public final class ModeGates {
         "com.oplus.camera.master.captureparam.version",
         "com.oplus.camera.highpixel.livephoto.video.max.duration",
         "com.oplus.camera.hasslblad.livephoto.capture.interval",
+        "com.oplus.xpan.mode.version",
     };
-    private static final int[] INT_VALUES = {2, 1, 3000, 1000};
+    private static final int[] INT_VALUES = {2, 1, 3000, 1000, 3};
 
-    /** String answers, keyed exactly. See {@link #hookScalarGetters}. */
+    /**
+     * String answers, keyed exactly. See {@link #hookScalarGetters}.
+     */
     private static final String[] STRING_KEYS = {
         "com.oplus.feature.master.mode.version",
         "com.oplus.feature.movie.mode.video.size",
     };
     private static final String[] STRING_VALUES = {"2.0", "3840x2160"};
+
+    /**
+     * The three XPAN picture sizes, filled only when the camera's own answer is null.
+     *
+     * <p>488. {@code XpanMode.T9} asks {@code CameraConfig.getSizeConfigValue} for
+     * {@code com.oplus.xpan.main.picturesize} (or the wide one, depending on the lens) and that is
+     * the size the XPAN capture is requested at. With the key absent the call answers null, the mode
+     * falls back to the ordinary 4:3 size, and the crop region below no longer fits the frame —
+     * which is exactly the 487 report: XPAN opens, shoots, and saves a 3072x4096 photo instead of a
+     * 7872x2912 frame. See {@link #hookSizeGetters}.
+     */
+    private static final String[] SIZE_KEYS = {
+        "com.oplus.xpan.main.picturesize",
+        "com.oplus.xpan.wide.picturesize",
+        "com.oplus.xpan.tele.picturesize",
+    };
+    private static final String[] SIZE_VALUES = {"7872x2912", "7872x2912", "7872x2912"};
+
+    /**
+     * The four XPAN crop regions, filled only when the camera's own answer is empty.
+     *
+     * <p>{@code XpanModel.onCreate} reads all four through {@code CameraConfig.l(String, int[])}
+     * and stores them as the viewfinder region, the mask and the coordinate the watermark
+     * composite places the photo at. This phone's {@code oplus_camera_config} is encrypted, and the
+     * keys never reach the app's config map, so {@code l} hands back the default — an empty array —
+     * and every consumer sees "no crop". The values are the ones this firmware's own config carries
+     * for an 8192x6144 sensor (the same numbers the X8U and the reference GT7 Pro port use):
+     * portrait x,y,w,h = 360,64,2912,7872 and landscape 64,360,7872,2912.
+     *
+     * <p>Filled, never forced: if a future firmware answers these itself, that answer is kept.
+     */
+    private static final String[] REGION_KEYS = {
+        "com.oplus.xpan.crop.region.main.portrait",
+        "com.oplus.xpan.crop.region.main.landscape",
+        "com.oplus.xpan.crop.region.wide.portrait",
+        "com.oplus.xpan.crop.region.wide.landscape",
+    };
+    private static final int[][] REGION_VALUES = {
+        {360, 64, 2912, 7872},
+        {64, 360, 7872, 2912},
+        {360, 64, 2912, 7872},
+        {64, 360, 7872, 2912},
+    };
 
     /** Keys already logged, so one report carries each answer once. */
     private static final Set<String> SEEN = ConcurrentHashMap.newKeySet();
@@ -237,6 +283,7 @@ public final class ModeGates {
         hookCachedGetter(config);
         hookMasterVideoFeatureList(config);
         hookScalarGetters(config);
+        hookSizeGetters(config);
     }
 
     /**
@@ -276,11 +323,95 @@ public final class ModeGates {
                     if (SEEN.add(MASTER_VIDEO_LIST)) log("master video feature list answered, "
                         + FEATURE_LIST.length + " slots");
                 }
+
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    // The XPAN crop regions go through the same reader, but they are filled rather
+                    // than forced: an answer the firmware supplies is kept, only an empty one is
+                    // replaced. See REGION_KEYS.
+                    if (param.hasThrowable()) return;
+                    Object key = param.args[0];
+                    if (!(key instanceof String)) return;
+                    int index = indexOfRegion((String) key);
+                    if (index < 0) return;
+                    int[] answer = (int[]) param.getResult();
+                    if (answer != null && answer.length == 4 && answer[2] > 0 && answer[3] > 0) {
+                        if (SEEN.add("region:" + key)) log(key + " came from the config: "
+                            + answer[0] + "," + answer[1] + "," + answer[2] + "," + answer[3]);
+                        return;
+                    }
+                    param.setResult(REGION_VALUES[index].clone());
+                    if (SEEN.add("region:" + key)) log(key + " was empty, answered "
+                        + REGION_VALUES[index][0] + "," + REGION_VALUES[index][1] + ","
+                        + REGION_VALUES[index][2] + "," + REGION_VALUES[index][3]);
+                }
             });
-            Log.i(TAG, "master video feature list hooked");
+            Log.i(TAG, "master video feature list hooked, " + REGION_KEYS.length
+                + " XPAN crop regions filled when empty");
         } catch (Throwable error) {
             Log.e(TAG, "master video feature hook failed", error);
         }
+    }
+
+    /**
+     * {@code CameraConfig.getSizeConfigValue(String, boolean) Size} — the XPAN capture size.
+     *
+     * <p>{@code XpanMode.T9} asks this for {@code com.oplus.xpan.main.picturesize} and hands the
+     * result to the capture request. Filled only when the camera has nothing, so a firmware that
+     * already answers it keeps its own value and this hook never overrides a real size.
+     */
+    private static void hookSizeGetters(Class<?> config) {
+        int armed = 0;
+        for (Method method : config.getDeclaredMethods()) {
+            Class<?>[] types = method.getParameterTypes();
+            if (types.length != 2 || types[0] != String.class || types[1] != boolean.class) continue;
+            if (method.getReturnType() != android.util.Size.class) continue;
+            try {
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override protected void afterHookedMethod(MethodHookParam param) {
+                        if (param.hasThrowable()) return;
+                        Object key = param.args[0];
+                        if (!(key instanceof String)) return;
+                        int index = indexOfSize((String) key);
+                        if (index < 0) return;
+                        Object answer = param.getResult();
+                        if (answer != null) {
+                            if (SEEN.add("size:" + key)) log(key + " came from the config: " + answer);
+                            return;
+                        }
+                        android.util.Size size = sizeOf(SIZE_VALUES[index]);
+                        if (size == null) return;
+                        param.setResult(size);
+                        if (SEEN.add("size:" + key)) log(key + " was null, answered " + size);
+                    }
+                });
+                armed++;
+            } catch (Throwable error) {
+                Log.e(TAG, "size hook failed on " + method.getName(), error);
+            }
+        }
+        if (armed == 0) Log.i(TAG, "no size config reader found, the XPAN size is left alone");
+    }
+
+    /** {@code "7872x2912"} as a Size, or null when the entry is not a size. */
+    private static android.util.Size sizeOf(String value) {
+        int x = value.indexOf('x');
+        if (x <= 0) return null;
+        try {
+            return new android.util.Size(Integer.parseInt(value.substring(0, x)),
+                Integer.parseInt(value.substring(x + 1)));
+        } catch (NumberFormatException notASize) {
+            return null;
+        }
+    }
+
+    private static int indexOfRegion(String key) {
+        for (int i = 0; i < REGION_KEYS.length; i++) if (REGION_KEYS[i].equals(key)) return i;
+        return -1;
+    }
+
+    private static int indexOfSize(String key) {
+        for (int i = 0; i < SIZE_KEYS.length; i++) if (SIZE_KEYS[i].equals(key)) return i;
+        return -1;
     }
 
     /**

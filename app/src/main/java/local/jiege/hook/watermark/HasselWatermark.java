@@ -82,6 +82,84 @@ public final class HasselWatermark {
             return;
         }
         Log.guard(TAG, "hassel style list", () -> hook(classLoader));
+        Log.guard(TAG, "hassel section gate", () -> gate(classLoader));
+    }
+
+    /**
+     * 488: the switch that decides whether the 哈苏 type button is added to the watermark section at
+     * all.
+     *
+     * <p>487 proved the built-in group is not the problem — {@code getBuiltInHasselStyles} already
+     * returns the eight {@code hassel_style_*} entries on this build. The section is assembled
+     * elsewhere: {@code WatermarkMasterVM.x} walks the style-type table read with
+     * {@code type_button_id = ?} and keeps a row only when its feature switch answers true, and the
+     * 哈苏 row's switch is {@code feature_is_support_hassel_watermark}. Every switch in that class
+     * is read through {@code com.oplus.aiunit.vision.y9b}, so answering that one key here is enough
+     * to get the row built — the styles themselves come from the list 487 already found.
+     *
+     * <p>Only that key is forced. The brand and region keys the same method asks about
+     * ({@code is_oppo_brand}, {@code is_oneplus_brand}, {@code is_region_cn},
+     * {@code feature_is_support_watermark_master}) are logged, not changed: this is a realme build
+     * and forcing a brand flag would reach far past the watermark page.
+     */
+    private static void gate(ClassLoader classLoader) {
+        final Class<?> config;
+        try {
+            config = XposedHelpers.findClass("com.oplus.aiunit.vision.y9b", classLoader);
+        } catch (Throwable absent) {
+            Log.i(TAG, "feature switch reader not in this build, the 哈苏 row is left as shipped");
+            return;
+        }
+        XC_MethodHook answer = new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam param) {
+                String key = keyOf(param.args);
+                if (key == null) return;
+                if (FORCED.equals(key)) {
+                    param.setResult(Boolean.TRUE);
+                    if (SWITCHES.add("forced:" + key)) Log.i(TAG, key + " answered true");
+                    return;
+                }
+                if (!SWITCHES.add("asked:" + key)) return;
+                // Logged before the answer is known: the value is read after this hook returns, so
+                // it is reported from the after-hook of the same call instead of by re-entering.
+                param.setObjectExtra("hassel.key", key);
+            }
+
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                Object key = param.getObjectExtra("hassel.key");
+                if (!(key instanceof String)) return;
+                Log.i(TAG, "watermark switch " + key + " reads " + param.getResult());
+            }
+        };
+        int armed = 0;
+        for (java.lang.reflect.Method method : config.getDeclaredMethods()) {
+            if (method.getReturnType() != boolean.class) continue;
+            boolean names = false;
+            for (Class<?> type : method.getParameterTypes()) if (type == String.class) names = true;
+            if (!names) continue;
+            try {
+                XposedBridge.hookMethod(method, answer);
+                armed++;
+            } catch (Throwable error) {
+                Log.e(TAG, "watermark switch hook failed on " + method.getName(), error);
+            }
+        }
+        Log.i(TAG, "hassel section gate armed on " + armed + " reader(s)");
+    }
+
+    private static final String FORCED = "feature_is_support_hassel_watermark";
+    private static final java.util.Set<String> SWITCHES = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** The first String argument that looks like one of the watermark switches. */
+    private static String keyOf(Object[] args) {
+        if (args == null) return null;
+        for (Object arg : args) {
+            if (!(arg instanceof String)) continue;
+            String name = (String) arg;
+            if (name.startsWith("feature_is_support_") || name.startsWith("is_")
+                || name.startsWith("is_oppo") || name.startsWith("is_oneplus")) return name;
+        }
+        return null;
     }
 
     private static void hook(ClassLoader classLoader) {

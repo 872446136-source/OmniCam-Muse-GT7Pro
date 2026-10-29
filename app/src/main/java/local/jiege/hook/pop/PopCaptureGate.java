@@ -90,6 +90,10 @@ final class PopCaptureGate {
 
             XposedBridge.hookMethod(decide, new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!inRetroMode(param.thisObject)) return;
+                    // The camera unit's own gate is armed here, on the same press: what the app
+                    // accepts here is the only thing the SDK side is missing (see PopSdkGate).
+                    PopSdkGate.arm(framesOf(param.args.length > 0 ? param.args[0] : null));
                     align(param, current);
                     startPreEvList(param);
                 }
@@ -260,18 +264,28 @@ final class PopCaptureGate {
 
     /**
      * Writes the decision into every field of the decision type the mode declares — that is
-     * {@code X1} and {@code Y1} (both set together by {@code Vi}) and nothing else on this build.
+     * {@code X1} and {@code Y1} (both set together by {@code Vi}) and {@code d1} on this build.
      * Named in the log so a build with a different field set is obvious in the report.
+     *
+     * <p>The hierarchy has to be walked: those three are declared on
+     * {@code com.oplus.camera.module.BaseMode}, and the object that reaches this method is the retro
+     * subclass, so {@code getClass().getDeclaredFields()} alone sees the subclass's own fields and
+     * nothing else — which is exactly the {@code (none found)} 495 reported.
      */
     private static void storeDecision(Object mode, Object decision) {
-        Class<?> type = decisionType;
-        if (type == null) return;
+        List<Field> fields = decisionFields(mode);
+        if (fields.isEmpty()) {
+            if (!reportedSource) {
+                reportedSource = true;
+                Log.i(TAG, "POP capture: " + mode.getClass().getSimpleName()
+                    + " has no field of type " + (decisionType == null ? "?" : decisionType.getName())
+                    + " anywhere in its hierarchy, the request keeps no decision");
+            }
+            return;
+        }
         StringBuilder names = new StringBuilder();
         try {
-            for (Field field : mode.getClass().getDeclaredFields()) {
-                if (Modifier.isStatic(field.getModifiers())) continue;
-                if (field.getType() != type) continue;
-                field.setAccessible(true);
+            for (Field field : fields) {
                 field.set(mode, decision);
                 if (names.length() > 0) names.append(',');
                 names.append(field.getName());
@@ -283,9 +297,54 @@ final class PopCaptureGate {
         if (!reportedSource) {
             reportedSource = true;
             Log.i(TAG, "POP capture: decision stored on " + mode.getClass().getSimpleName()
-                + " fields " + (names.length() == 0 ? "(none found)" : names));
+                + " fields " + names);
         }
     }
+
+    /**
+     * Every decision-typed field the object carries, its own and its ancestors'. {@code X1} / {@code
+     * Y1} first when present, because those are the two {@code Vi} writes and the two {@code bh}
+     * reads for the request's timestamp.
+     */
+    private static List<Field> decisionFields(Object mode) {
+        Class<?> type = decisionType;
+        List<Field> found = new ArrayList<>();
+        if (mode == null || type == null) return found;
+        List<Field> rest = new ArrayList<>();
+        for (Class<?> owner = mode.getClass(); owner != null && owner != Object.class;
+                owner = owner.getSuperclass()) {
+            for (Field field : owner.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())) continue;
+                if (field.getType() != type) continue;
+                try {
+                    field.setAccessible(true);
+                } catch (Throwable denied) {
+                    continue;
+                }
+                if ("X1".equals(field.getName()) || "Y1".equals(field.getName())) {
+                    found.add(field);
+                } else {
+                    rest.add(field);
+                }
+            }
+        }
+        found.addAll(rest);
+        return found;
+    }
+
+    /**
+     * How many frames the app's own decision says the capture has. The camera unit keeps its own
+     * copy of the preview decision and that one is older; this is the number it is missing.
+     */
+    private static int framesOf(Object decision) {
+        if (decision == null) return 1;
+        try {
+            return XposedHelpers.getIntField(decision, "f");
+        } catch (Throwable missing) {
+            return 1;
+        }
+    }
+
 
     /**
      * Read-only: says whether the capture request really found a decision, by looking at the mode's
@@ -319,21 +378,22 @@ final class PopCaptureGate {
     private static volatile boolean reportedDecision;
 
     private static String currentDecision(Object mode) {
-        Class<?> type = decisionType;
-        if (type == null) return "(decision type unknown)";
-        try {
-            for (Field field : mode.getClass().getDeclaredFields()) {
-                if (Modifier.isStatic(field.getModifiers())) continue;
-                if (field.getType() != type) continue;
-                field.setAccessible(true);
+        List<Field> fields = decisionFields(mode);
+        if (fields.isEmpty()) return "(no decision field)";
+        StringBuilder text = new StringBuilder();
+        for (Field field : fields) {
+            try {
                 Object value = field.get(mode);
-                return field.getName() + "=" + (value == null ? "null" : describe(value));
+                if (text.length() > 0) text.append(' ');
+                text.append(field.getName()).append('=')
+                    .append(value == null ? "null" : describe(value));
+            } catch (Throwable error) {
+                text.append(field.getName()).append("=(unreadable: ").append(error).append(')');
             }
-        } catch (Throwable error) {
-            return "(unreadable: " + error + ")";
         }
-        return "(no decision field)";
+        return text.toString();
     }
+
 
     /**
      * True for the retro mode object. When {@code RetroMode} does not resolve there is no way to

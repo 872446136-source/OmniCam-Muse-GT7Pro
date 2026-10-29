@@ -263,6 +263,13 @@ internal object LogExport {
             put("相机.txt", if (report == null) "相机未被注入或无法连接\n" else
                 report.keySet().filter { it != DiagnosticsContract.KEY_LOG && it != DiagnosticsContract.KEY_MASTER_STOCK }.sorted().joinToString("\n") { "$it = ${report.get(it)}" } +
                     "\n\n" + report.getString(DiagnosticsContract.KEY_LOG).orEmpty() + "\n")
+            // 488: the gallery has its own hooked process and its own log, and it was never in the
+            // export — so "the Hasselblad styles are not in the gallery either" came back with no
+            // gallery lines at all to check it against. Same layout as the camera one.
+            val gallery = GalleryReport.fetch(context)
+            put("相册.txt", if (gallery == null) "相册未被注入或无法连接\n" else
+                gallery.keySet().filter { it != DiagnosticsContract.KEY_LOG && it != DiagnosticsContract.KEY_MASTER_STOCK }.sorted().joinToString("\n") { "$it = ${gallery.get(it)}" } +
+                    "\n\n" + gallery.getString(DiagnosticsContract.KEY_LOG).orEmpty() + "\n")
             put("设置.txt", settings(context))
             runCatching { MasterFilters.store(context).configText() }.getOrNull()?.let { put("大师滤镜配置.txt", it) }
             put("应用日志.txt", ownLogcat())

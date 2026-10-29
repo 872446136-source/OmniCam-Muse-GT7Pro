@@ -43,3 +43,12 @@ done
 for DIR in /data/user/0/com.oplus.camera/files/jiege/basictone /data/data/com.oplus.camera/files/jiege/basictone; do
     [ -d "$DIR" ] && rm -rf "$DIR"
 done
+
+# Same story for the POP LUTs, and this one is the 488 report: 484 copied them to
+# files/pop_port/meishe_lut and the native remap looked there before /odm, so one POP filter
+# (the "positive film, rich" one) read a pre-format-fix LUT and rendered black. The remap now reads
+# the layer first, and the stale copy is removed at install time so there is nothing left to outrank
+# the build.
+for DIR in /data/user/0/com.oplus.camera/files/pop_port /data/data/com.oplus.camera/files/pop_port; do
+    [ -d "$DIR" ] && rm -rf "$DIR"
+done

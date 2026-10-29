@@ -48,6 +48,13 @@ public final class CameraLogMirror {
         // the log video session and its LUT monitor, the film mode, and the 50 MP page.
         "LogVideoPresenter", "LogLutMenuView", "LogVideoMenu", "MasterVideo", "HighPixel",
         "MovieMode", "Xpan",
+        // 488: the XPAN crop only ever reaches the algorithm through the request tag
+        // XPanPresenter builds, and that class logs the region it put there — under "XPanPresenter",
+        // which "Xpan" does not match (startsWith is case sensitive). The 488 report therefore had
+        // no line saying what region the capture was given. IPU_WM is the watermark composite that
+        // lays out the canvas, and WatermarkYuvInfo is where the picture size and the crop size are
+        // printed side by side — the two numbers that tell a real crop from a padded canvas.
+        "XPan", "IPU_WM", "WatermarkYuvInfo",
         // 478: "updateConfigure, supported featureList: …" is the list the camera builds presenters
         // from, per mode. POP's presenter — the only thing that builds the retro view — is created
         // from that list, so this line says outright whether retro_camera was in it.

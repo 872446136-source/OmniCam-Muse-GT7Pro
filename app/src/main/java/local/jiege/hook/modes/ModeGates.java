@@ -6,6 +6,9 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import java.io.File;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import local.jiege.hook.common.Log;
@@ -136,6 +139,12 @@ public final class ModeGates {
      * falls back to the ordinary 4:3 size, and the crop region below no longer fits the frame —
      * which is exactly the 487 report: XPAN opens, shoots, and saves a 3072x4096 photo instead of a
      * 7872x2912 frame. See {@link #hookSizeGetters}.
+     *
+     * <p>488 then answered {@code 8000x3636} from this phone's own config, and the 488 log proves it
+     * is the one that was used. That number is not a mistake: it is the <em>buffer</em> the region
+     * below cuts the strip out of — 360+2912+360 = 3632 and 64+7872+64 = 8000 — so the output is the
+     * region (2912x7872 portrait), not the buffer. The size is therefore still only filled when the
+     * camera has nothing; the region is what was broken.
      */
     private static final String[] SIZE_KEYS = {
         "com.oplus.xpan.main.picturesize",
@@ -152,10 +161,21 @@ public final class ModeGates {
      * composite places the photo at. This phone's {@code oplus_camera_config} is encrypted, and the
      * keys never reach the app's config map, so {@code l} hands back the default — an empty array —
      * and every consumer sees "no crop". The values are the ones this firmware's own config carries
-     * for an 8192x6144 sensor (the same numbers the X8U and the reference GT7 Pro port use):
+     * for an 3636x8000 buffer — the short side of {@code com.oplus.xpan.main.picturesize}
+     * ({@code 8000x3636}), which is why 360+2912+360 and 64+7872+64 add up to it exactly:
      * portrait x,y,w,h = 360,64,2912,7872 and landscape 64,360,7872,2912.
      *
-     * <p>Filled, never forced: if a future firmware answers these itself, that answer is kept.
+     * <p><b>488 forced these only when empty and the 488 report shows the result.</b> XPAN produced
+     * a tall canvas with the uncropped 4:3 frame in its top-left corner: the region never reached
+     * the algorithm, so nothing was cut, while the encoder still laid out the canvas for the crop.
+     * The 488 log has no region line at all — not "came from the config", not "was empty" — which
+     * means the reader this class hooked was not the one {@code XpanModel} calls. {@code CameraConfig}
+     * declares several {@code (String, int[]) -> int[]} methods and only the first was hooked.
+     *
+     * <p>Now every such method is hooked, and the four keys are answered outright. Forcing is safe
+     * here in a way it is not elsewhere: the values below are this firmware's own config values, so
+     * a working reader and this hook agree, and a reader that returns an empty or zeroed array —
+     * which silently disables the crop — is corrected.
      */
     private static final String[] REGION_KEYS = {
         "com.oplus.xpan.crop.region.main.portrait",
@@ -300,56 +320,70 @@ public final class ModeGates {
      * stage still leaves the page reachable.
      */
     private static void hookMasterVideoFeatureList(Class<?> config) {
-        Method reader = null;
+        int armed = 0;
+        for (Method reader : intArrayReaders(config)) {
+            try {
+                XposedBridge.hookMethod(reader, new XC_MethodHook() {
+                    @Override protected void beforeHookedMethod(MethodHookParam param) {
+                        Object key = param.args[0];
+                        if (!(key instanceof String)) return;
+                        if (!MASTER_VIDEO_LIST.equals(key)) return;
+                        param.setResult(FEATURE_LIST.clone());
+                        if (SEEN.add(MASTER_VIDEO_LIST)) log("master video feature list answered, "
+                            + FEATURE_LIST.length + " slots");
+                    }
+
+                    @Override protected void afterHookedMethod(MethodHookParam param) {
+                        // The XPAN crop regions go through a reader of the same shape. 488 hooked
+                        // only the first one it found and the camera never called that one, so the
+                        // regions were never answered; every reader is hooked now and the key is
+                        // what decides.
+                        if (param.hasThrowable()) return;
+                        Object key = param.args[0];
+                        if (!(key instanceof String)) return;
+                        int index = indexOfRegion((String) key);
+                        if (index < 0) return;
+                        int[] answer = (int[]) param.getResult();
+                        boolean usable = answer != null && answer.length == 4
+                            && answer[2] > 0 && answer[3] > 0;
+                        if (usable && Arrays.equals(answer, REGION_VALUES[index])) {
+                            if (SEEN.add("region:" + key)) log(key + " came from the config: "
+                                + answer[0] + "," + answer[1] + "," + answer[2] + "," + answer[3]);
+                            return;
+                        }
+                        param.setResult(REGION_VALUES[index].clone());
+                        if (SEEN.add("region:" + key)) log(key + (usable
+                            ? " was " + answer[0] + "," + answer[1] + "," + answer[2] + "," + answer[3]
+                                + ", answered "
+                            : " was empty, answered ")
+                            + REGION_VALUES[index][0] + "," + REGION_VALUES[index][1] + ","
+                            + REGION_VALUES[index][2] + "," + REGION_VALUES[index][3]);
+                    }
+                });
+                armed++;
+            } catch (Throwable error) {
+                Log.e(TAG, "feature reader hook failed on " + reader.getName(), error);
+            }
+        }
+        if (armed == 0) {
+            Log.i(TAG, "no int[] config reader found, the XPAN crop regions are left alone");
+            return;
+        }
+        Log.i(TAG, "int[] config readers hooked: " + armed + ", " + REGION_KEYS.length
+            + " XPAN crop regions answered");
+    }
+
+    /** Every {@code (String, int[]) -> int[]} reader the config class declares. */
+    private static List<Method> intArrayReaders(Class<?> config) {
+        List<Method> found = new ArrayList<>();
         for (Method method : config.getDeclaredMethods()) {
             Class<?>[] types = method.getParameterTypes();
             if (types.length == 2 && types[0] == String.class && types[1] == int[].class
                 && method.getReturnType() == int[].class) {
-                reader = method;
-                break;
+                found.add(method);
             }
         }
-        if (reader == null) {
-            Log.i(TAG, "master video feature reader not found, profile value only");
-            return;
-        }
-        try {
-            XposedBridge.hookMethod(reader, new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    Object key = param.args[0];
-                    if (!(key instanceof String)) return;
-                    if (!MASTER_VIDEO_LIST.equals(key)) return;
-                    param.setResult(FEATURE_LIST.clone());
-                    if (SEEN.add(MASTER_VIDEO_LIST)) log("master video feature list answered, "
-                        + FEATURE_LIST.length + " slots");
-                }
-
-                @Override protected void afterHookedMethod(MethodHookParam param) {
-                    // The XPAN crop regions go through the same reader, but they are filled rather
-                    // than forced: an answer the firmware supplies is kept, only an empty one is
-                    // replaced. See REGION_KEYS.
-                    if (param.hasThrowable()) return;
-                    Object key = param.args[0];
-                    if (!(key instanceof String)) return;
-                    int index = indexOfRegion((String) key);
-                    if (index < 0) return;
-                    int[] answer = (int[]) param.getResult();
-                    if (answer != null && answer.length == 4 && answer[2] > 0 && answer[3] > 0) {
-                        if (SEEN.add("region:" + key)) log(key + " came from the config: "
-                            + answer[0] + "," + answer[1] + "," + answer[2] + "," + answer[3]);
-                        return;
-                    }
-                    param.setResult(REGION_VALUES[index].clone());
-                    if (SEEN.add("region:" + key)) log(key + " was empty, answered "
-                        + REGION_VALUES[index][0] + "," + REGION_VALUES[index][1] + ","
-                        + REGION_VALUES[index][2] + "," + REGION_VALUES[index][3]);
-                }
-            });
-            Log.i(TAG, "master video feature list hooked, " + REGION_KEYS.length
-                + " XPAN crop regions filled when empty");
-        } catch (Throwable error) {
-            Log.e(TAG, "master video feature hook failed", error);
-        }
+        return found;
     }
 
     /**

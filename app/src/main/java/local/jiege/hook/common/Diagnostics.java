@@ -21,10 +21,25 @@ import local.jiege.settings.DiagnosticsContract;
  * they cannot see the settings app (package visibility), the settings app can see them.
  */
 public final class Diagnostics {
-    private static final int MAX_LINES = 600;
+    /**
+     * 488 report: the exported log held exactly 600 lines and started four seconds after the
+     * process did. Everything the module logged while it was arming — which hooks installed, which
+     * class was identified, which field was found — had already been pushed out by the camera's own
+     * mirrored lines, so a report that said "POP still blocked, XPAN still wrong" could not say
+     * whether the gate had even been installed. The ring is four times longer now, and the module's
+     * own lines are moved to a second ring when they would be evicted instead of being dropped.
+     */
+    private static final int MAX_LINES = 2400;
+
+    /** How many of the module's own lines are kept for the whole life of the process. */
+    private static final int KEEP_LINES = 400;
+
+    /** Lines the camera mirror writes; the first to go when the ring is full. */
+    private static final String MIRRORED = "CameraLog: ";
 
     private static final Object lock = new Object();
     private static final ArrayDeque<String> lines = new ArrayDeque<>();
+    private static final ArrayDeque<String> kept = new ArrayDeque<>();
     private static final long startTime = System.currentTimeMillis();
     private static int errors;
     private static String apkPath;
@@ -80,10 +95,16 @@ public final class Diagnostics {
 
     static void record(String level, String line) {
         String stamp = new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.ROOT).format(new Date());
+        String text = stamp + " " + Process.myPid() + " " + level + " " + line;
         synchronized (lock) {
             if ("E".equals(level)) errors++;
-            lines.addLast(stamp + " " + Process.myPid() + " " + level + " " + line);
-            while (lines.size() > MAX_LINES) lines.removeFirst();
+            lines.addLast(text);
+            while (lines.size() > MAX_LINES) {
+                String gone = lines.removeFirst();
+                // The module's own lines are the ones a report is read for. The camera mirror writes
+                // thousands of lines and would otherwise evict them; those are the ones to lose.
+                if (!gone.contains(MIRRORED) && kept.size() < KEEP_LINES) kept.addLast(gone);
+            }
         }
     }
 
@@ -103,7 +124,10 @@ public final class Diagnostics {
             state.putInt(DiagnosticsContract.KEY_ERRORS, errors);
             state.putLong(DiagnosticsContract.KEY_START, startTime);
             state.putInt(DiagnosticsContract.KEY_PID, Process.myPid());
-            state.putString(DiagnosticsContract.KEY_LOG, String.join("\n", lines));
+            StringBuilder log = new StringBuilder();
+            for (String line : kept) log.append(line).append('\n');
+            for (String line : lines) log.append(line).append('\n');
+            state.putString(DiagnosticsContract.KEY_LOG, log.toString());
         }
         state.putString(DiagnosticsContract.KEY_MASTER_STOCK, masterStock);
         state.putBoolean(DiagnosticsContract.KEY_FILES_MOUNTED, filesMounted);

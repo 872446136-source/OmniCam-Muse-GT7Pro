@@ -74,6 +74,16 @@ static const char *remap(const char *path, char *buf, size_t n) {
         return path;
     }
     if (std::strncmp(path, kOdmLut, sizeof(kOdmLut) - 1) == 0) {
+        // The layer wins. 484 left a copy of the LUTs under the camera's private files and this
+        // remap used to look there first, so on a phone upgraded from 484 an old file shadowed the
+        // layer's copy of the same name. That is the one POP filter that rendered black in the 487
+        // and 488 reports ("positive film, rich"), whose LUT in the private copy predates the format
+        // build applies to the layer. Reading the layer first makes the private copy what it was
+        // meant to be — a fallback for a phone whose /odm has no such file — and removes the whole
+        // class of "a stale copy outranks the build" bugs without depending on a boot script.
+        if (destExists(path)) {
+            return path;
+        }
         std::snprintf(buf, n, "%s%s", kAppLut, path + sizeof(kOdmLut) - 1);
         if (destExists(buf)) {
             return buf;

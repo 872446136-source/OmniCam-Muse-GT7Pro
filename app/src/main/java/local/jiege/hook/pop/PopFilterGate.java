@@ -10,6 +10,7 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import local.jiege.hook.common.Log;
+import local.jiege.hook.common.Symbols;
 
 /**
  * POP (retro camera): the shutter stays dead after a filter is picked.
@@ -23,31 +24,32 @@ import local.jiege.hook.common.Log;
  *   OCAM_RetroCameraMode isReadyToCapture, blocked during retro filter switching
  * </pre>
  *
- * <p>All three overrides in {@code RetroCameraMode} (this build: {@code um.o1}) return early behind
- * one boolean — {@code s3}. 488 read the class and found out who writes it:
+ * <p>All three overrides in the retro mode (this build: {@code um.o1}) return early behind one
+ * boolean — {@code s3}:
  *
  * <pre>
- *   r6(int)  onFilterScrolling   -> Ek(name, true)     the strip started moving
+ *   r6(int)  onFilterScrolling   -> t3 = false, Ek(name, true)   the strip started moving
  *   Ek(String, boolean)          the only writer of s3
- *   T0()     onFilterSnapSettled -> t3 = true          the strip settled  (NO CALLERS)
- *   Jg(...)  onPreviewDecisionResult -> Ek(name, ...)  the preview answered (NO CALLERS)
+ *   T0()     onFilterSnapSettled -> t3 = true                    the strip settled
+ *   Jg(...)  onPreviewDecisionResult -> reads s3, t3, w3         the preview answered
  * </pre>
  *
- * <p>{@code T0} and {@code Jg} have no callers at all in this APK, so nothing can ever clear
- * {@code s3} again: one scroll of the ported filter strip disables the shutter for the rest of the
- * session. 488's first attempt armed itself from {@code r6} only and did nothing on the phone —
- * the 488 report shows the same three blocked lines with no watchdog line at all, because {@code s3}
- * was set by the delayed runnable {@code um.j1}, not by a scroll this session, so the arming
- * timestamp was never written.
+ * <p><b>488 and 489 both hooked the constructors of {@code com.oplus.camera.module.BaseMode} and
+ * both never installed.</b> The 488 log has {@code POP filter gate armed on
+ * com.oplus.camera.module.BaseMode} and not one line after it, while every shape check in this
+ * class passes for {@code um.o1} (it has exactly two boolean fields, {@code s3} and {@code t3}, and
+ * all five methods). The reason is the trigger, not the test: the camera builds its mode objects
+ * during startup, before the module's hooks are installed, so a constructor hook never sees the
+ * instance that matters.
  *
- * <p>This version arms itself on observation instead: whichever of {@code Ek} / {@code r6} runs
- * first starts the clock, and if the flag is still set {@link #STALE_MS} later it is cleared right
- * before the camera's own guard reads it. The two fields are taken by name ({@code s3} / {@code t3},
- * both stable in this APK) and fall back to the shape — the three shutter overrides plus the two
- * callbacks — when a future build renames them.
+ * <p>This version takes the class from {@code assets/symbols.json} ({@code RetroMode} and its six
+ * members, fingerprinted by the strings they log) and hooks the methods <em>on the class</em>, which
+ * covers instances created before the hook. The constructor path is kept as a fallback for a build
+ * whose symbols do not resolve, and now says why it gave up.
  *
  * <p>Nothing is forced while the strip is actually moving: the clock restarts on every scroll, so a
- * genuine 200 ms switch window is untouched.
+ * genuine 200 ms switch window is untouched. {@code s3} set while {@code t3} is already true is a
+ * contradiction — the strip cannot be switching and settled at once — and is cleared on sight.
  *
  * <p>Escape hatch: {@code touch /data/adb/omnicam_popgate_off}.
  */
@@ -62,7 +64,7 @@ final class PopFilterGate {
     /** When the switching flag was first seen set (or last refreshed by a scroll). */
     private static volatile long armed;
 
-    /** The class and the callbacks, once a mode object with the retro shape was seen. */
+    /** The class and the flags, once the retro mode class was found. */
     private static volatile Class<?> retro;
     private static volatile Field switching;
     private static volatile Field settled;
@@ -70,6 +72,7 @@ final class PopFilterGate {
 
     private static volatile boolean reportedInstall;
     private static volatile boolean reportedClear;
+    private static volatile boolean reportedFallback;
 
     private PopFilterGate() {}
 
@@ -78,19 +81,60 @@ final class PopFilterGate {
             Log.i(TAG, "POP filter gate off (" + OFF + "), the shutter is left as the camera has it");
             return;
         }
+        if (bySymbols()) return;
+        byConstructors(classLoader);
+    }
+
+    // --- primary path: the class itself ---------------------------------------------------------
+
+    /** Hooks the retro mode class found by fingerprint; works for instances built before us. */
+    private static boolean bySymbols() {
+        try {
+            Symbols symbols = Symbols.get();
+            if (!symbols.has("RetroMode", "RetroMode.shutterClick", "RetroMode.shutterTouch",
+                    "RetroMode.readyToCapture")) {
+                return false;
+            }
+            Class<?> type = symbols.cls("RetroMode");
+            arm(type,
+                symbols.method("RetroMode.shutterClick"),
+                symbols.method("RetroMode.shutterTouch"),
+                symbols.method("RetroMode.readyToCapture"),
+                symbols.has("RetroMode.filterScrolling") ? symbols.method("RetroMode.filterScrolling") : null,
+                symbols.has("RetroMode.filterSettled") ? symbols.method("RetroMode.filterSettled") : null,
+                symbols.has("RetroMode.setSwitching") ? symbols.method("RetroMode.setSwitching") : null,
+                "symbols");
+            return true;
+        } catch (Throwable error) {
+            Log.e(TAG, "POP filter gate could not use its symbols", error);
+            return false;
+        }
+    }
+
+    // --- fallback: the mode object's constructor ------------------------------------------------
+
+    /**
+     * The 488/489 path, kept for a build whose symbols do not resolve. It only works when the mode
+     * object is built after this runs, which is not what happens on this phone — hence the log line
+     * that says so instead of a silent no-op.
+     */
+    private static void byConstructors(ClassLoader classLoader) {
         try {
             Class<?> base = XposedHelpers.findClass(BASE_MODE, classLoader);
             XposedBridge.hookAllConstructors(base, new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
                     if (param.thisObject == null) return;
+                    Class<?> type = param.thisObject.getClass();
+                    if (retro != null) return;
                     try {
-                        identify(param.thisObject.getClass());
+                        identify(type);
                     } catch (Throwable error) {
-                        Log.e(TAG, "POP filter gate could not read " + param.thisObject.getClass(), error);
+                        Log.e(TAG, "POP filter gate could not read " + type.getName(), error);
                     }
                 }
             });
-            Log.i(TAG, "POP filter gate armed on " + BASE_MODE);
+            Log.i(TAG, "POP filter gate waiting on " + BASE_MODE + " constructors (fallback: the retro "
+                + "mode symbols did not resolve)");
         } catch (Throwable error) {
             Log.e(TAG, "POP filter gate unavailable", error);
         }
@@ -104,26 +148,54 @@ final class PopFilterGate {
         Method ready = method(type, "Td", boolean.class, boolean.class, boolean.class, boolean.class);
         Method scrolling = method(type, "r6", int.class);
         Method snapSettled = method(type, "T0");
-        if (click == null || touch == null || ready == null || scrolling == null || snapSettled == null) return;
-        if (click.getReturnType() != boolean.class || touch.getReturnType() != void.class) return;
-        if (ready.getReturnType() != boolean.class || scrolling.getReturnType() != void.class) return;
-        if (snapSettled.getReturnType() != void.class) return;
-        Field[] booleans = booleans(type);
-        if (booleans.length == 0 || booleans.length > 6) return;
+        String missing = shapeProblem(type, click, touch, ready, scrolling, snapSettled);
+        if (missing != null) {
+            if (!reportedFallback) {
+                reportedFallback = true;
+                Log.i(TAG, "POP filter gate skipped " + type.getName() + ": " + missing);
+            }
+            return;
+        }
+        arm(type, click, touch, ready, scrolling, snapSettled,
+            method(type, "Ek", String.class, boolean.class), "constructors");
+    }
 
+    private static String shapeProblem(Class<?> type, Method click, Method touch, Method ready,
+                                       Method scrolling, Method snapSettled) {
+        if (click == null) return "no Gf(int):boolean";
+        if (touch == null) return "no Hf(int):void";
+        if (ready == null) return "no Td(boolean,boolean,boolean,boolean):boolean";
+        if (scrolling == null) return "no r6(int):void";
+        if (snapSettled == null) return "no T0():void";
+        if (click.getReturnType() != boolean.class) return "Gf does not return boolean";
+        if (touch.getReturnType() != void.class) return "Hf does not return void";
+        if (ready.getReturnType() != boolean.class) return "Td does not return boolean";
+        if (scrolling.getReturnType() != void.class) return "r6 does not return void";
+        if (snapSettled.getReturnType() != void.class) return "T0 does not return void";
+        Field[] booleans = booleans(type);
+        if (booleans.length == 0) return "no boolean fields";
+        if (booleans.length > 6) return booleans.length + " boolean fields, too many";
+        return null;
+    }
+
+    // --- the hooks ------------------------------------------------------------------------------
+
+    private static void arm(Class<?> type, Method click, Method touch, Method ready,
+                            Method scrolling, Method snapSettled, Method writer, String how) {
         retro = type;
-        flags = booleans;
+        flags = booleans(type);
         switching = named(type, "s3");
         settled = named(type, "t3");
 
-        XposedBridge.hookMethod(scrolling, new XC_MethodHook() {
-            @Override protected void beforeHookedMethod(MethodHookParam param) {
-                armed = android.os.SystemClock.elapsedRealtime();
-            }
-        });
-        // The writer of the flag. Watching it is what makes the clock start even when the strip was
-        // moved by a delayed runnable rather than by a scroll this session.
-        Method writer = method(type, "Ek", String.class, boolean.class);
+        if (scrolling != null) {
+            XposedBridge.hookMethod(scrolling, new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    armed = android.os.SystemClock.elapsedRealtime();
+                }
+            });
+        }
+        // The writer of the flag: watching it is what gives the clock a real start, even when the
+        // strip was moved by a delayed runnable rather than by a scroll this session.
         if (writer != null) {
             XposedBridge.hookMethod(writer, new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
@@ -132,12 +204,14 @@ final class PopFilterGate {
                 }
             });
         }
-        XposedBridge.hookMethod(snapSettled, new XC_MethodHook() {
-            @Override protected void afterHookedMethod(MethodHookParam param) {
-                armed = 0;
-                Log.i(TAG, "filter strip settled, flags " + describe(read(param.thisObject)));
-            }
-        });
+        if (snapSettled != null) {
+            XposedBridge.hookMethod(snapSettled, new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    armed = 0;
+                    Log.i(TAG, "filter strip settled, flags " + describe(read(param.thisObject)));
+                }
+            });
+        }
         XC_MethodHook unstick = new XC_MethodHook() {
             @Override protected void beforeHookedMethod(MethodHookParam param) {
                 unstick(param.thisObject);
@@ -148,8 +222,9 @@ final class PopFilterGate {
         XposedBridge.hookMethod(ready, unstick);
         if (!reportedInstall) {
             reportedInstall = true;
-            Log.i(TAG, "POP filter gate installed on " + type.getName() + ", switching flag "
-                + name(switching) + ", settled flag " + name(settled) + ", " + flags.length + " boolean(s)");
+            Log.i(TAG, "POP filter gate installed on " + type.getName() + " via " + how + ", switching flag "
+                + name(switching) + ", settled flag " + name(settled) + ", " + flags.length + " boolean(s)"
+                + (writer == null ? ", no writer hook" : ""));
         }
     }
 
@@ -171,30 +246,37 @@ final class PopFilterGate {
                 armed = 0;
                 return;
             }
+            boolean contradictory = settled != null && settled.getBoolean(mode);
             long since = armed;
-            if (since == 0) {
-                // First sight of the flag. The camera gets its full window before anything is
-                // touched: a real switch finishes in a couple of hundred milliseconds.
-                armed = now;
+            if (!contradictory) {
+                if (since == 0) {
+                    // First sight of the flag with no known start. The camera gets its full window
+                    // before anything is touched: a real switch finishes in a couple of hundred ms.
+                    armed = now;
+                    return;
+                }
+                long idle = now - since;
+                if (idle <= STALE_MS) return;
+                clear(mode, idle + " ms idle");
                 return;
             }
-            long idle = now - since;
-            if (idle <= STALE_MS) return;
-
-            if (switching != null) {
-                switching.setBoolean(mode, false);
-            } else {
-                for (Field flag : flags) if (flag.getBoolean(mode)) flag.setBoolean(mode, false);
-            }
-            if (settled != null) settled.setBoolean(mode, true);
-            armed = 0;
-            if (!reportedClear) {
-                reportedClear = true;
-                Log.i(TAG, "stale filter switch cleared after " + idle + " ms idle, flags "
-                    + describe(read(mode)));
-            }
+            clear(mode, "settled flag already set");
         } catch (Throwable error) {
             Log.e(TAG, "POP filter gate could not clear the switch flag", error);
+        }
+    }
+
+    private static void clear(Object mode, String why) throws IllegalAccessException {
+        if (switching != null) {
+            switching.setBoolean(mode, false);
+        } else {
+            for (Field flag : flags) if (flag.getBoolean(mode)) flag.setBoolean(mode, false);
+        }
+        if (settled != null) settled.setBoolean(mode, true);
+        armed = 0;
+        if (!reportedClear) {
+            reportedClear = true;
+            Log.i(TAG, "stale filter switch cleared (" + why + "), flags " + describe(read(mode)));
         }
     }
 

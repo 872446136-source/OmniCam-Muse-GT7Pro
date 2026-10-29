@@ -43,6 +43,33 @@ static bool destExists(const char *path) {
     return ok == 0;
 }
 
+// Which LUT name was read, and where it was served from — once per name per process.
+//
+// The 487/488 reports say three POP filters (positive / film / rich) render black while the rest of
+// the strip renders. A black frame is what the Meishe engine produces when it cannot load the LUT,
+// and there are three ways that can happen here: the layer has no such file, the private copy is
+// the only one left, or the file is there in a format this firmware cannot read. The first two are
+// decided by this function and were previously invisible; the third is visible from the names.
+static void noteLut(const char *name, const char *source) {
+    static char seen[64][48];
+    static int count;
+    if (!name) {
+        return;
+    }
+    for (int i = 0; i < count; i++) {
+        if (std::strncmp(seen[i], name, sizeof(seen[i]) - 1) == 0) {
+            return;
+        }
+    }
+    if (count >= 64) {
+        return;
+    }
+    std::strncpy(seen[count], name, sizeof(seen[count]) - 1);
+    seen[count][sizeof(seen[count]) - 1] = '\0';
+    count++;
+    __android_log_print(ANDROID_LOG_INFO, "PopPort", "lut %s from %s", name, source);
+}
+
 static const char *remap(const char *path, char *buf, size_t n) {
     if (bypass || !path) {
         return path;
@@ -76,22 +103,29 @@ static const char *remap(const char *path, char *buf, size_t n) {
     if (std::strncmp(path, kOdmLut, sizeof(kOdmLut) - 1) == 0) {
         // The layer wins. 484 left a copy of the LUTs under the camera's private files and this
         // remap used to look there first, so on a phone upgraded from 484 an old file shadowed the
-        // layer's copy of the same name. That is the one POP filter that rendered black in the 487
-        // and 488 reports ("positive film, rich"), whose LUT in the private copy predates the format
-        // build applies to the layer. Reading the layer first makes the private copy what it was
-        // meant to be — a fallback for a phone whose /odm has no such file — and removes the whole
-        // class of "a stale copy outranks the build" bugs without depending on a boot script.
+        // layer's copy of the same name. That is the class of bug behind the black filters in the
+        // 487 and 488 reports (positive film / film / rich), whose LUT in the private copy predates
+        // the format build applies to the layer. Reading the layer first makes the private copy what
+        // it was meant to be - a fallback for a phone whose /odm has no such file - and removes the
+        // whole class of "a stale copy outranks the build" bugs without depending on a boot script.
+        //
+        // 491: every decision here is now logged once per name (noteLut), so a report that still
+        // shows a black filter says whether the file was missing, stale, or present but unreadable.
         if (destExists(path)) {
+            noteLut(path + sizeof(kOdmLut) - 1, "the layer");
             return path;
         }
         std::snprintf(buf, n, "%s%s", kAppLut, path + sizeof(kOdmLut) - 1);
         if (destExists(buf)) {
+            noteLut(path + sizeof(kOdmLut) - 1, "the private copy (the layer has no such file)");
             return buf;
         }
         std::snprintf(buf, n, "%s%s", kImportedLut, path + sizeof(kOdmLut) - 1);
         if (destExists(buf)) {
+            noteLut(path + sizeof(kOdmLut) - 1, "the imported masters");
             return buf;
         }
+        noteLut(path + sizeof(kOdmLut) - 1, "nowhere, the open is about to fail");
     }
     return path;
 }

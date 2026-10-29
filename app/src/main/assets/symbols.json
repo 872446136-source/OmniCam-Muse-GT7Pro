@@ -2263,6 +2263,86 @@
         "boolean"
       ],
       "ret": "void"
+    },
+    "RetroMode": {
+      "kind": "class",
+      "strings": [
+        "onCameraShutterButtonClick, blocked during retro filter switching",
+        "onFilterSnapSettled, snapSettled=true"
+      ]
+    },
+    "RetroMode.shutterClick": {
+      "kind": "method",
+      "in": "@RetroMode",
+      "params": [
+        "int"
+      ],
+      "ret": "boolean",
+      "strings": [
+        "onCameraShutterButtonClick, blocked during retro filter switching"
+      ]
+    },
+    "RetroMode.shutterTouch": {
+      "kind": "method",
+      "in": "@RetroMode",
+      "params": [
+        "int"
+      ],
+      "ret": "void",
+      "strings": [
+        "onCameraShutterButtonDispatchTouch, blocked during retro filter switching"
+      ]
+    },
+    "RetroMode.readyToCapture": {
+      "kind": "method",
+      "in": "@RetroMode",
+      "params": [
+        "boolean",
+        "boolean",
+        "boolean",
+        "boolean"
+      ],
+      "ret": "boolean",
+      "strings": [
+        "isReadyToCapture, blocked during retro filter switching"
+      ]
+    },
+    "RetroMode.filterScrolling": {
+      "kind": "method",
+      "in": "@RetroMode",
+      "params": [
+        "int"
+      ],
+      "ret": "void",
+      "strings": [
+        "onFilterScrolling"
+      ]
+    },
+    "RetroMode.filterSettled": {
+      "kind": "method",
+      "in": "@RetroMode",
+      "params": [],
+      "ret": "void",
+      "strings": [
+        "onFilterSnapSettled, snapSettled=true"
+      ]
+    },
+    "RetroMode.setSwitching": {
+      "kind": "method",
+      "in": "@RetroMode",
+      "params": [
+        "java.lang.String",
+        "boolean"
+      ],
+      "ret": "void"
+    },
+    "RetroMode.previewDecision": {
+      "kind": "method",
+      "in": "@RetroMode",
+      "params": [
+        "eb.e"
+      ],
+      "ret": "void"
     }
   },
   "gallery": {

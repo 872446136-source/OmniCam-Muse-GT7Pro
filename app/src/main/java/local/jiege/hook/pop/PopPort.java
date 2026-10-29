@@ -14,11 +14,16 @@ public final class PopPort {
     /** @param mainProcess resources are only needed in the camera's main process */
     public static void installCamera(ClassLoader classLoader, boolean mainProcess) {
         if (mainProcess) {
-            try {
-                PopResources.install(classLoader);
-            } catch (Throwable error) {
-                Log.e(TAG, "POP resource hooks unavailable", error);
-            }
+        try {
+            PopResources.install(classLoader);
+        } catch (Throwable error) {
+            Log.e(TAG, "POP resource hooks unavailable", error);
+        }
+        try {
+            PopGuard.install(classLoader);
+        } catch (Throwable error) {
+            Log.e(TAG, "POP crash guard unavailable", error);
+        }
         }
         try {
             PopShutterGeometry.install(classLoader);
@@ -39,6 +44,20 @@ public final class PopPort {
             PopSdrStyle.install(classLoader);
         } catch (Throwable error) {
             Log.e(TAG, "POP SDR style hook unavailable", error);
+        }
+        if (mainProcess) {
+        try {
+            PopFilterGate.install(classLoader);
+        } catch (Throwable error) {
+            Log.e(TAG, "POP filter gate unavailable", error);
+        }
+        // After the filter gate: it is what resolves RetroMode, and this gate scopes itself to that
+        // class so it never touches the camera ids of the other modes.
+        try {
+            PopCaptureGate.install(classLoader);
+        } catch (Throwable error) {
+            Log.e(TAG, "POP capture gate unavailable", error);
+        }
         }
     }
 }

@@ -1,5 +1,28 @@
 #!/system/bin/sh
-# Bind the tested POP camera directories and GR ISP files.
+# The one file this script still has to build at boot, plus a mount report for the next bug report.
+#
+# What changed in 485: the data layer is no longer bind-mounted here. Everything the camera reads by
+# name — meishe_lut, basictone/lmt_gr, basictone/pop_port, basictone/mode_limit_watermark,
+# basictone/setting_Retro — now ships inside the module as a plain filesystem layer under
+# system/odm/etc/camera/, and the mount is done by KernelSU's magic mount (or by the
+# magic_mount_rs metamodule, which is the same mechanism and the one this build is tuned for).
+#
+# Why the old way had to go: 475-484 composed a merged tree in /data/adb/modules/<id>/merged and
+# bind-mounted it over /odm/etc/camera/basictone. That is a mount made by this script, in this
+# script's namespace, at post-fs-data time — three things that kept going wrong. 482 reported
+# data=true, 483 reported data=false with every data-layer feature off, and 484's app-private copy
+# never appeared because service.sh runs before the user unlocks and /data/user/0/com.oplus.camera
+# does not exist yet. A module filesystem layer has none of those moving parts: magic mount runs
+# before any app starts, it is the same code path that mounts the fonts and thermal modules on this
+# device, and the files are already in the right place when the camera opens.
+#
+# Rule for this build is unchanged: nothing in /odm is replaced. The layer only adds files the
+# firmware does not have (lmt_gr, pop_port, mode_limit_watermark, setting_Retro) and, for the two
+# directories the payload genuinely extends (meishe_lut, basictone/lmt), the module's copies shadow
+# the stock files of the same name and leave every other stock file in place.
+#
+# Kill switch: touch /data/adb/omnicam_off, then reboot.
+
 MODDIR=${0%/*}
 LOG=$MODDIR/bind.log
 set -u
@@ -8,111 +31,40 @@ log() {
     echo "$1" >> "$LOG"
 }
 
-bind_file() {
-    SOURCE="$1"
-    TARGET="$2"
-    chown root:root "$SOURCE"
-    chmod 0644 "$SOURCE"
-    chcon u:object_r:vendor_configs_file:s0 "$SOURCE" 2>/dev/null || true
-    if mount --bind "$SOURCE" "$TARGET" >> "$LOG" 2>&1; then
-        log "file bind ok $TARGET"
-    else
-        log "file bind FAIL $TARGET"
-    fi
-}
-
-label_tree() {
-    DIR=$1
-    chown -R root:root "$DIR"
-    find "$DIR" -type d -exec chmod 0755 {} \;
-    find "$DIR" -type f -exec chmod 0644 {} \;
-    find "$DIR" -exec chcon u:object_r:vendor_configs_file:s0 {} \; 2>>"$LOG" || true
-}
-
-bind_merged_dir() {
-    LIVE=$1
-    EXTRA=$2
-    DEST=$3
-    TARGET=$4
-    log "merge $TARGET from $LIVE"
-    if [ ! -d "$LIVE" ]; then
-        log "missing live $LIVE"
-        return 0
-    fi
-    rm -rf "$DEST"
-    mkdir -p "$DEST"
-    cp -a "$LIVE"/. "$DEST"/
-    if [ -d "$EXTRA" ]; then
-        cp -a "$EXTRA"/. "$DEST"/
-    fi
-    label_tree "$DEST"
-    log "live_count=$(ls "$LIVE" | wc -l) merged_count=$(ls "$DEST" | wc -l)"
-    if mount --bind "$DEST" "$TARGET" >> "$LOG" 2>&1; then
-        log "dir bind ok $TARGET"
-    else
-        log "dir bind FAIL $TARGET"
-    fi
-}
-
 : > "$LOG"
-log "begin"
+log "begin $(date)"
 
-# Lite 构建（module/lite）：这份 payload 是按别的机型生成的，一个文件都不挂。
-if [ -f "$MODDIR/lite" ]; then
-    log "lite build, nothing mounted"
-    exit 0
-fi
-
-# 机型守卫：payload 要覆盖的文件必须全部存在于本机，否则不挂。
-# 不匹配的 camera_unit_config / ISP 调校盖到 /odm 上，相机会起不来。
-for LENS in main wide tele ultratele; do
-    if [ ! -f "/odm/lib64/camera/com.qti.tuned.lighthouse${LENS}.bin" ]; then
-        log "payload does not match this device (missing lighthouse${LENS}), nothing mounted"
+for OFF in /data/adb/omnicam_off /data/adb/omnicam_nostack_off /data/adb/omnicam_fullport_off; do
+    if [ -f "$OFF" ]; then
+        log "kill switch $OFF present, nothing mounted"
         exit 0
     fi
 done
 
-for NAME in camera_unit_config camera_unit_feature_config.protobuf oplus_camera_config oplus_camera_algo_switch_config oplus_camera_aps_config oplus_camera_preview_decision_config.json; do
-    bind_file "$MODDIR/payload/$NAME" "/odm/etc/camera/config/$NAME"
-done
-# Forced shutter sound stream at the system volume curve (see tools/patch_audio_volumes.py).
-bind_file "$MODDIR/payload/audio_policy_volumes.xml" /odm/etc/audio/audio_policy_volumes.xml
-
-bind_merged_dir /odm/etc/camera/meishe_lut "$MODDIR/payload/meishe_lut" "$MODDIR/merged/meishe_lut" /odm/etc/camera/meishe_lut
-
-BT_EXTRA=$MODDIR/merged/basictone_extra
-rm -rf "$BT_EXTRA"
-mkdir -p "$BT_EXTRA/setting_Retro"
-if [ -d "$MODDIR/payload/setting_Retro" ]; then
-    cp -a "$MODDIR/payload/setting_Retro"/. "$BT_EXTRA/setting_Retro"/
-fi
-cp -a "$MODDIR/payload/x10_basictone"/. "$BT_EXTRA"/
-bind_merged_dir /odm/etc/camera/basictone "$BT_EXTRA" "$MODDIR/merged/basictone" /odm/etc/camera/basictone
-
-log "polaroid=$(ls -l /odm/etc/camera/meishe_lut/polaroid_sdr.mslut 2>&1)"
-log "host_film=$(ls -l /odm/etc/camera/meishe_lut/fuji-nc.bin 2>&1)"
-log "retro_ini=$(ls -l /odm/etc/camera/basictone/setting_Retro/SimTool_Master.ini 2>&1)"
-log "host_setting=$(ls -d /odm/etc/camera/basictone/setting 2>&1)"
-
-for LENS in main wide tele ultratele; do
-    NAME="com.qti.tuned.lighthouse${LENS}.bin"
-    SOURCE="$MODDIR/payload/isp/$NAME"
-    TARGET="/odm/lib64/camera/$NAME"
-    chown root:root "$SOURCE"
-    chmod 0644 "$SOURCE"
-    chcon u:object_r:vendor_file:s0 "$SOURCE" 2>>"$LOG" || true
-    if mount --bind "$SOURCE" "$TARGET" >>"$LOG" 2>&1; then
-        log "isp bind ok $TARGET"
+# Mount report. This is the first thing to read in a bug report: it says whether the module layer is
+# actually in the camera's view of /odm, and it names the two mounts that are expected to be there.
+log "meishe_lut=$(ls /odm/etc/camera/meishe_lut 2>/dev/null | wc -l) files"
+log "basictone=$(ls /odm/etc/camera/basictone 2>/dev/null | wc -l) entries"
+for NAME in lmt_gr pop_port mode_limit_watermark setting_Retro; do
+    if [ -d "/odm/etc/camera/basictone/$NAME" ]; then
+        log "layer $NAME: present, $(ls "/odm/etc/camera/basictone/$NAME" 2>/dev/null | wc -l) entries"
     else
-        log "isp bind FAIL $TARGET"
+        log "layer $NAME: ABSENT — the module's system/odm layer is not mounted"
     fi
 done
-for NAME in gamma_preview_sdr_conf.json gamma_quick_sdr_conf.json gamma_preview_hdr_conf.json; do
-    bind_file "$MODDIR/payload/gamma/$NAME" "/odm/etc/camera/$NAME"
-done
-# Pro video ISZ (2x main, 6x tele; O-Log2 too): stock sets the ISO gate of rows 25-40 to 0/0,
-# which DoIzoomStable() can never pass; -1 means "no ISO check", like the normal video rows.
-# Patched from the live file on every boot. Touch $MODDIR/disable_pro_video_isz to skip.
+if [ -d /odm/etc/camera/basictone/lmt_gr ]; then
+    log "lmt_gr SCLut0=$(wc -c < /odm/etc/camera/basictone/lmt_gr/SCLut0 2>/dev/null || echo 0) bytes"
+fi
+if [ -d /data/adb/magic_mount ]; then
+    log "metamodule magic_mount_rs: installed, config=$(cat /data/adb/magic_mount/config.toml 2>/dev/null | tr '\n' ' ')"
+else
+    log "metamodule magic_mount_rs: not installed, KernelSU's own magic mount is doing the work"
+fi
+
+# Pro video ISZ (2x main, 6x tele): stock zeroes the ISO gate of rows 25-40, which DoIzoomStable() can
+# never pass; -1 means "no ISO check". Patched from the device's own file every boot and only mounted
+# when exactly 16 rows matched, so a different config layout is left alone.
+# Touch $MODDIR/disable_pro_video_isz to skip.
 HWCFG=/odm/etc/camera/CameraHWConfiguration.config
 HWOUT=$MODDIR/merged/CameraHWConfiguration.config
 if [ -f "$MODDIR/disable_pro_video_isz" ]; then
@@ -132,7 +84,14 @@ elif [ -f "$HWCFG" ]; then
     ' "$HWCFG" > "$HWOUT" 2> "$MODDIR/merged/isz_count"
     COUNT=$(cat "$MODDIR/merged/isz_count" 2>/dev/null)
     if [ "$COUNT" = "16" ]; then
-        bind_file "$HWOUT" "$HWCFG"
+        chown root:root "$HWOUT"
+        chmod 0644 "$HWOUT"
+        chcon u:object_r:vendor_configs_file:s0 "$HWOUT" 2>/dev/null || true
+        if mount --bind "$HWOUT" "$HWCFG" >> "$LOG" 2>&1; then
+            log "pro video isz ok $HWCFG"
+        else
+            log "pro video isz FAIL $HWCFG"
+        fi
     else
         log "pro video isz skipped, patched rows=$COUNT (expected 16)"
     fi

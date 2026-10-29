@@ -8,19 +8,29 @@ BES = "com.oplus.gallery.photoeditor.editingvvm.BaseEditingSection"
 def g(**kw):
     for k, v in kw.items(): G[k.replace("__", ".")] = v
 g(
+ # Colour palette: the filter-recovery gate and the palette-mode switch it caches behind a Lazy.
+ FilterRecoverGate=M(static=True, ret="boolean", strings=["FilterInfoRecoverGate"]),
+ ColorPaletteMode=M(static=True, params=[], ret="boolean", calledBy=["@FilterRecoverGate"]),
+ ColorPaletteMode__lazy=F(static=True, type="kotlin.Lazy", readBy=["@ColorPaletteMode"]),
  Config__getBoolean=M(params=[S, "boolean", "boolean"], ret="boolean", strings=["getBoolean configAbility is null, configId:"]),
  CameraInfo__doubleSelect=M(params=[], ret="boolean", strings=["ai.master.support.double.select", "getCameraIsSupportDoubleSelect metadata failed"]),
  AssetStyleSource=K(strings=["AssetStyleFileSource(assetName='"]),
- FileStyleSource=K(strings=["FileStyleSource(filePath='"]),
  StyleSource=K(interfaceOf="@AssetStyleSource"),
  AssetStyleSource__name=F(**{"in": "@AssetStyleSource"}, type=S),
+ # The staged GR style replaces the built-in asset by answering this call with a file stream; the
+ # FileStyleSource class 17.10.37 keeps its constructor out of the dex, so it is never built here.
+ AssetStyleSource__stream=M(**{"in": "@AssetStyleSource"}, name="getInputStream", params=[], ret="java.io.InputStream"),
  StyleLoader__resolve=M(**{"in": "com.oplus.gallery.framework.abilities.watermarkmaster.b"}, params=["@StyleSource"], ret="@StyleSource"),
  Section__refreshStyles=M(**{"in": WCS}, params=[], ret="void", fields=["Lcom/oplus/gallery/photoeditor/R$string;->picture_edtior_text_watermark_ricoh_GR_title:I"]),
  Section__backButtonSetup=M(**{"in": WCS}, fields=["Lcom/oplus/gallery/photoeditor/R$id;->watermark_camera_back_btn:I"]),
- Section__segmentSetup=M(**{"in": WCS}, strings=["null cannot be cast to non-null type com.coui.appcompat.segmentbutton.COUISegmentButtonLayout"]),
  Section__onCreate=M(**{"in": WCS}, name="onCreate"),
- Section__cameraStyles=M(**{"in": WCS}, params=[], ret="boolean", calledBy=["@Section.backButtonSetup", "@Section.segmentSetup", "@Section.onCreate"]),
- Section__style=F(**{"in": WCS}, name="z0", type=S),
+ # The tab/segment reader the editor asks "is a camera style selected"; 17.10.37 also has two
+ # ()=Z lookalikes, so the two COUI calls and the chip-free body pin the right one.
+ Section__cameraStyles=M(**{"in": WCS}, params=[], ret="boolean", invokes=[
+     "Lcom/coui/appcompat/segmentbutton/COUISegmentButtonLayout;->getSelectedSegmentPosition()I",
+     "Lcom/coui/appcompat/tablayout/COUITabLayout;->getSelectedTabPosition()I"],
+     notInvokes=["Landroid/widget/CompoundButton;->isChecked()Z"],
+     calledBy=["@Section.onCreate"]),
  Section__grChip=F(**{"in": WCS}, name="y", type="com.coui.appcompat.chip.COUIChip"),
  Section__otherChip=F(**{"in": WCS}, name="x", type="com.coui.appcompat.chip.COUIChip"),
  Section__root=F(**{"in": WCS}, name="q", type="androidx.constraintlayout.widget.ConstraintLayout"),

@@ -2,12 +2,14 @@
 
 > ## 这个仓库是 GT7 Pro 的 Lite fork
 >
-> 目标机型：**真我 GT7 Pro（RMX5010）**，ColorOS 17.0.0.111，相机 `com.oplus.camera` 7.006.112，相册 `com.coloros.gallery3d` 17.10.37。
+> 目标机型：**真我 GT7 Pro（RMX5010）**，ColorOS 17，相机 `com.oplus.camera` **7.013.40**，相册 `com.coloros.gallery3d` **17.10.41**（当前版本 `Muse 4.24 GT7Pro` / 493）。
 > 上游 [OmniCam-Muse](https://github.com/benbaobaoshigemi/OmniCam-Muse) 面向 OPPO Find X9 Ultra（PMA110，相机 7.006.119）。
 >
-> 拿到 GT7 Pro 的 `/odm` 原始数据后实测确认：两台机器**不是同一配置世代**——决策配置格式不同、原生管线类族不同（本机只有 `24019`，没有 `25021`）、大师色彩与 XPAN 开关为 0、模式库里没有 GR / POP。**完整功能集无法移植。**
+> 拿到 GT7 Pro 的 `/odm` 原始数据后实测确认：两台机器**不是同一配置世代**——决策配置格式不同、原生管线类族不同（本机只有 `24019`，没有 `25021`）、大师色彩与 XPAN 开关为 0、模式库里没有 GR / POP。**不能整包照搬。**
 >
-> 所以这个 fork 交付的是 **Lite 构建**：只装纯应用层钩子，不挂 `/odm`、不加载原生库、不碰任何相机配置文件。
+> 所以这个 fork 的做法是：KernelSU 模块只 bind-mount **数据层**（LUT、水印、模式库），**绝不替换任何系统库或 ODM 配置**；所有开关由 LSPosed 应用 `local.jiege.camera` 在进程内回答（配置走 profile 路径重定向 + hook）。原生库、`/odm` 文件本身一个都不动。
+>
+> **486 唯一的例外**：`/odm/lib64/libmsnativefilter.so`（Meishe GPU 滤镜渲染器）。POP 的四款胶片和 GR 的四款滤镜是它里面的渲染器，本机固件这份一个都没有（`CNvPolaroid` / `CNvFilterCCD` / `CNvPortra400` / `CNvShapeMask` 全为 0），而 `libAlgoInterface.so` 是按绝对路径 `dlopen` 的，没有回退。`libAlgoInterface.so` 当前解析的 16 个 Meishe 符号，替换件全部仍然导出，另外多三个，没有任何丢失；`service.sh` 在 late_start 用 `nsenter` bind，先检测再 bind 再复查，`touch /data/adb/omnicam_msfilter_off` 或 KernelSU 的「执行」按钮可随时撤回。
 >
 > | 文档 | 内容 |
 > |---|---|
@@ -16,8 +18,6 @@
 > | [`GT7Pro-适配/patch/gt7pro-lite.diff`](GT7Pro-适配/patch/gt7pro-lite.diff) | 相对上游的全部改动（10 个文件） |
 >
 > **下载**：[Releases](https://github.com/872446136-source/OmniCam-Muse-GT7Pro/releases) —— `OmniCam-Muse-GT7Pro-KSU.zip` 刷模块，`OmniCam-Muse-Lite.apk` 是设置应用。
->
-> **全功能测试分支**：[`test/full-port`](https://github.com/872446136-source/OmniCam-Muse-GT7Pro/tree/test/full-port) —— 把上游 payload、原生库、全部钩子原样搬过来，不做任何机型判断，用于在真机上收集崩溃点。风险与回滚见该分支的 [`TEST-BRANCH.md`](https://github.com/872446136-source/OmniCam-Muse-GT7Pro/blob/test/full-port/TEST-BRANCH.md)。
 >
 > **构建**：本仓库**不含** `module/payload/`（200 MB 的 LUT 与调音配置，属于 X9 Ultra，对 GT7 Pro 无用），所以 `build.ps1` 的色彩目录校验会失败。用 GitHub Actions（`.github/workflows/build.yml`，push 到 `main` 或手动触发）产出签名 APK + KSU 模块 zip；本地构建则直接 `./gradlew :app:assembleRelease` 再用 `apksigner` 签名。
 >

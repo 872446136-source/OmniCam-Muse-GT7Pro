@@ -87,6 +87,9 @@ add(
  ZoomValues__forMode=M(**{"in": "@ZoomValues"}, params=[S], ret="java.util.List", static=True, strings=["com.oplus.available.gr.mode.zoomvalues"]),
  ZoomValues__parseWide=M(**{"in": "@ZoomValues"}, params=["java.util.List"], ret="java.util.List", static=True, strings=["parseAvailableWideZoomValues, fail to parse zoom data"]),
  CameraConfig__list=M(**{"in": "com.oplus.camera.configure.CameraConfig"}, params=[S], ret="java.util.List", static=True),
+ # getConfigBooleanValue is deliberately NOT a symbol: resolving it is harmless, but the mode gate
+ # hook has to be installed after the app exists (see hook/modes/ModeGates.java), so it finds the
+ # method by reflection there instead of forcing it into the startup symbol pass.
  FocalLength=K(strings=["ZoomStreetFocalLengthUnit", "0.6(16)"]),
  FocalLength__millimetres=M(**{"in": "@FocalLength"}, params=["float"], ret="float", strings=["ZoomStreetFocalLengthUnit"]),
  ZoomUi=K(strings=[", isNoneSatTeleDVOpen: ", "changeZoom, value: "]),

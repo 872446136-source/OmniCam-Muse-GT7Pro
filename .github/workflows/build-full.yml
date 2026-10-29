@@ -1,0 +1,294 @@
+name: build
+
+# One build, every feature. The upstream data layer (LUTs, basictone, GR LMT, master colour, watermark
+# artwork) is pulled at build time and is the only thing taken from the Find X9 Ultra tree: no system
+# library and no ODM config is ever packaged, because replacing those is what takes the camera down on
+# a device with a different SoC and a different config format.
+
+on:
+  push:
+    branches: ['test/full', 'main']
+    paths-ignore:
+      - '**.md'
+      - 'GT7Pro-适配/**'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-full
+  cancel-in-progress: true
+
+env:
+  # Upstream commit the data layer is taken from. Bump it when the fork is re-synced.
+  UPSTREAM_SHA: 8f373e10b17c95532a3ff2f41c4777ca797da947
+  RELEASE_TAG: full
+
+jobs:
+  build:
+    name: assemble, sign, package
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Android SDK (platform 37, build-tools 37, NDK 29, CMake 3.22.1)
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          SDKM=$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | tail -1)
+          echo "sdkmanager: $SDKM"
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          "$SDKM" --install "platforms;android-37.0" || "$SDKM" --install "platforms;android-37.1"
+          "$SDKM" --install "build-tools;37.0.0" || "$SDKM" --install "build-tools;36.1.0"
+          "$SDKM" --install "ndk;29.0.14206865"
+          "$SDKM" --install "cmake;3.22.1"
+          ls "$SDK/platforms" "$SDK/build-tools" "$SDK/ndk" "$SDK/cmake"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+
+      - name: Fetch the upstream data layer
+        run: |
+          set -eux
+          curl -sSL --retry 3 --retry-delay 5 \
+            "https://codeload.github.com/benbaobaoshigemi/OmniCam-Muse/tar.gz/${UPSTREAM_SHA}" -o /tmp/upstream.tar.gz
+          mkdir -p /tmp/up
+          tar xzf /tmp/upstream.tar.gz -C /tmp/up
+          UP=$(ls -d /tmp/up/*)
+          mkdir -p module/payload
+          # Data only. Deliberately NOT module/system (the X9 libraries) and not the config/ISP/gamma
+          # payloads: this build never substitutes a system file.
+          for DIR in meishe_lut x10_basictone setting_Retro gr_adjustment_lmt \
+                     master_color watermark_master_styles watermark_drawables ipu \
+                     pld_watermark apk_resources; do
+            # Loud, not silent: pld_watermark and apk_resources are what POP draws with, and a build
+            # without them is the build that kept reporting "POP PLD resources missing".
+            if [ ! -d "$UP/module/payload/$DIR" ]; then
+              echo "::error::upstream payload/$DIR is missing at $UPSTREAM_SHA"
+              exit 1
+            fi
+            cp -a "$UP/module/payload/$DIR" "module/payload/$DIR"
+          done
+          # The X10 filters 清透 / 琥珀 ship as version 4 / 33^3 LUTs, a shape the GT7 Pro firmware
+          # never loads (every LUT it ships is version 1 / 32^3 or version 3 / 17^3), which renders
+          # both filters black. Rewrite them as version 1 / 32^3 with a trilinear resample.
+          python3 tools/mslut.py fix module/payload/meishe_lut
+          python3 tools/mslut.py info module/payload/meishe_lut/qing_tou.bin module/payload/meishe_lut/hu_po.bin
+
+          # 492: the film LUTs the camera asks for but this firmware does not ship.
+          #
+          # POP's film strip maps to com.oplus.camera.filter.FilterHelper's table: Portra胶片 ->
+          # portra400_*, 正片胶片 -> positive_*, NC/CC -> fuji-*, 800T -> 800t_*. The GT7 Pro's own
+          # /odm/etc/camera/meishe_lut has every one of those except the eight positive_* files, and
+          # upstream's payload does not carry them either, so 正片胶片 is the one filter in the strip
+          # that renders black. The device says so itself, once per frame:
+          #
+          #   E/meicam: Failed to open lut file /odm/etc/camera/meishe_lut/positive_sdr_gen_a_1.bin
+          #   E/meicam: Failed to open lut file /odm/etc/camera/meishe_lut/positive_sdr_gen_d_1.bin
+          #
+          # The copies here come from the B6 port's /odm tree, in version 3 / 17^3 — the shape this
+          # firmware loads (its own portra400_* are the same 14855 bytes). They are copied after the
+          # resample step so they are never rewritten.
+          cp -a module/lut_extra/. module/payload/meishe_lut/
+          for f in module/lut_extra/*.bin; do
+            python3 tools/mslut.py info "$f"
+          done
+
+          # The retro BasicTone opens "<setting dir>/SimTool.ini" — that exact name is the only one
+          # libBasicTonePhoto.so knows ("%s/SimTool.ini"). Upstream's payload ships SimTool_Master.ini
+          # and SimTool_Photo_Master.ini instead, so the retro path found no settings at all and came
+          # up on a black viewfinder. This is the device's own setting/SimTool.ini, unmodified, so the
+          # grid size and the switch block match what this firmware's library was built for.
+          cp tools/setting_retro/SimTool.ini module/payload/setting_Retro/SimTool.ini
+          cmp tools/setting_retro/SimTool.ini module/payload/setting_Retro/SimTool.ini
+
+          # GR tone tables at the grid size this firmware reads (64^3). The payload's originals are
+          # 32^3 and BasicTone takes the size from SimTool.ini, so a 32^3 file is read as a quarter of
+          # a table; a table it cannot find at all becomes zeros. Both are a black preview and a green
+          # frame. service.sh copies gr_lmt64 over the device's own SCLut0..8.
+          python3 tools/gr_lmt.py module/payload/gr_adjustment_lmt module/payload/gr_lmt64 --size 64
+          rm -rf module/payload/gr_adjustment_lmt
+          ls -l module/payload/gr_lmt64 | head -4
+          test "$(ls module/payload/gr_lmt64 | wc -l)" = 9
+          du -sh module/payload/*
+
+      - name: Assemble the mount layer
+        run: |
+          set -eux
+          # 485: the payload stops being a /data tree that a script bind-mounts and becomes a plain
+          # module filesystem layer under system/odm. Magic mount — KernelSU's own, or the
+          # magic_mount_rs metamodule — puts it over /odm before any app starts, so the camera can no
+          # longer open before the data is there, which is what 475-484 kept tripping over.
+          #
+          # Overlay semantics, not copy semantics: a file the layer carries shadows the stock file of
+          # the same name, and every stock file it does not carry stays visible. That is exactly what
+          # the old "copy the live tree, then copy the payload on top" merge did, without the merge.
+          CAM=module/system/odm/etc/camera
+          BT=$CAM/basictone
+          mkdir -p "$BT"
+          cp -a module/payload/meishe_lut "$CAM/meishe_lut"
+
+          # X10 tone curves (lmt/), palette tables and the four palette ini files.
+          cp -a module/payload/x10_basictone/. "$BT"/
+
+          # GR tone tables. LMTLut0/1 are this firmware's own, taken from the device dump so the
+          # directory is complete for the LMT pass (SimTool.ini has LMT = 0, so it is not used);
+          # the nine SCLut are the 64^3 GR look, which is the grid size this firmware reads.
+          mkdir -p "$BT/lmt_gr"
+          cp -a tools/lmt_host/LMTLut0 tools/lmt_host/LMTLut1 "$BT/lmt_gr"/
+          cp -a module/payload/gr_lmt64/. "$BT/lmt_gr"/
+
+          # POP: the Polaroid watermark resources and the retro UI animations / guide images.
+          mkdir -p "$BT/pop_port"
+          cp -a module/payload/pld_watermark "$BT/pop_port/pld_watermark"
+          cp -a module/payload/apk_resources "$BT/pop_port/apk_resources"
+
+          # GR watermark styles, both layouts the two readers use (dir/style.json and style.json).
+          mkdir -p "$BT/mode_limit_watermark"
+          for I in 1 2 3 4 5; do
+            ID=gr_style_$I
+            mkdir -p "$BT/mode_limit_watermark/$ID"
+            cp -a "module/payload/watermark_master_styles/$ID.json" "$BT/mode_limit_watermark/$ID/$ID.json"
+            cp -a "module/payload/watermark_master_styles/$ID.json" "$BT/mode_limit_watermark/$ID.json"
+            cp -a module/payload/watermark_drawables/*.webp "$BT/mode_limit_watermark/$ID/"
+          done
+          cp -a module/payload/watermark_drawables/*.webp "$BT/mode_limit_watermark/"
+
+          # setting_Retro: this firmware has no such directory at all, and the retro BasicTone opens
+          # exactly "<dir>/SimTool.ini" ("%s/SimTool.ini" is the only ini name in
+          # libBasicTonePhoto.so). Ship the device's own setting/ tree — SimTool.ini plus the
+          # Ditherout/ and FromXml/ it points at — so the retro path finds a complete configuration
+          # instead of a directory with no lut_size and no switch block.
+          cp -a tools/setting_retro "$BT/setting_Retro"
+
+          # Report what the layer actually contains, and fail loudly on the two files that decide
+          # whether POP renders at all.
+          du -sh "$CAM" "$BT"/* | sort -h
+          test -f "$BT/setting_Retro/SimTool.ini"
+          test -f "$BT/pop_port/pld_watermark/pld/pld.json"
+          test "$(ls "$BT/lmt_gr" | wc -l)" = 11
+          test "$(wc -c < "$BT/lmt_gr/SCLut0")" = 3145728
+
+          # The layer is the only copy now. Leaving the same bytes in payload/ as well would double
+          # the download for no reason, and a stale duplicate is how the two sources start to drift.
+          rm -rf module/payload/meishe_lut module/payload/x10_basictone module/payload/gr_lmt64 \
+                 module/payload/pld_watermark module/payload/apk_resources module/payload/setting_Retro
+          du -sh module/payload/*
+
+      - name: Meishe renderer in the mount layer
+        run: |
+          set -eux
+          # 486/487. The one system file this build substitutes: /odm/lib64/libmsnativefilter.so, the
+          # GPU filter renderer. POP (Polaroid) and GR's four film styles are renderers inside it, and
+          # this firmware's copy (7282176 bytes, 2723 exports) has none of them:
+          #   CNvPolaroid 0, CNvFilterCCD 0, CNvPortra400 0, CNvShapeMask 0, CNvCompoundLutTiled 0.
+          # libAlgoInterface.so dlopens the file by absolute path, so a missing renderer cannot be
+          # created — black viewfinder, green still. Every Meishe symbol that library currently
+          # resolves is still exported by this copy, and it adds MsRenderHardwareBuffer,
+          # MsSetFacePoints and MsSetStarFilterAngles; nothing is lost.
+          #
+          # 486 shipped it as a payload that service.sh bind-mounted, and the 486 report shows that
+          # never took effect: the settings page still read the stock 7282176-byte file. So it moves
+          # into the mount layer, next to the /odm/etc/camera data that 485 already proved mounts on
+          # this phone. magic mount puts it in place before any app starts, and service.sh keeps a
+          # bind as the fallback for a phone without a metamodule.
+          LAYER=module/system/odm/lib64
+          mkdir -p "$LAYER"
+          cp -a tools/msfilter/libmsnativefilter.so "$LAYER/libmsnativefilter.so"
+          test "$(wc -c < "$LAYER/libmsnativefilter.so")" = 10957976
+          # The renderer must carry what the two features need; a truncated or wrong file is a
+          # silent black viewfinder, which is exactly the bug this step exists to fix.
+          for SYMBOL in CNvPolaroid CNvPortra400 CNvFilterCCD CNvShapeMask; do
+            grep -qa "$SYMBOL" "$LAYER/libmsnativefilter.so"
+          done
+          ls -l "$LAYER"
+          du -sh module/system
+
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: assembleRelease
+        run: |
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --console=plain --stacktrace
+
+      - name: Sign
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)
+          cp app/build/outputs/apk/release/app-release-unsigned.apk unsigned.apk
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks signing/port.p12 --ks-type PKCS12 \
+            --ks-pass pass:omnicam --key-pass pass:omnicam \
+            --out OmniCam-Muse-GT7Pro.apk unsigned.apk
+          "$BUILD_TOOLS/apksigner" verify --print-certs OmniCam-Muse-GT7Pro.apk
+          "$BUILD_TOOLS/aapt2" dump badging OmniCam-Muse-GT7Pro.apk | head -1
+          unzip -l OmniCam-Muse-GT7Pro.apk | grep -E "native_init|libjiege_native"
+          # The config profile is staged by the camera process from this asset; without it every mode
+          # the profile adds stays hidden.
+          unzip -l OmniCam-Muse-GT7Pro.apk | grep "assets/profile/.*/camera_unit_config"
+          # The mode table has to carry the two pages merged in 475, or the merge did nothing.
+          unzip -p OmniCam-Muse-GT7Pro.apk "assets/profile/RMX5010/camera_unit_config" | grep -c "movie_mode"
+
+      - name: Package the KernelSU module
+        run: |
+          set -eux
+          cp OmniCam-Muse-GT7Pro.apk module/omnicam-muse-lite.apk
+          python3 tools/zip_module.py module OmniCam-Muse-GT7Pro-KSU.zip
+          # Guard rails. A library anywhere in the zip used to be the black-screen bug this build
+          # exists to remove. Since 486 there is exactly one allowed exception — the Meishe GPU
+          # renderer, which POP and GR's film styles cannot exist without — and it is named here so
+          # any *other* library still fails the build. The only system tree allowed is the data layer
+          # under system/odm/etc/camera plus that one file under system/odm/lib64: no other /system
+          # library, no vendor config, no camera_unit_config.
+          if unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep '\.so$' \
+              | grep -v '^system/odm/lib64/libmsnativefilter\.so$'; then
+            echo "::error::the module zip carries a library other than the Meishe renderer"
+            exit 1
+          fi
+          unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep -qx 'system/odm/lib64/libmsnativefilter.so' \
+            || { echo "::error::the Meishe renderer is missing from the mount layer"; exit 1; }
+          if unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep '^system/' \
+              | grep -v '^system/odm/etc/camera/' | grep -v '^system/odm/lib64/libmsnativefilter\.so$'; then
+            echo "::error::the module zip carries a system tree outside the two allowed paths"
+            exit 1
+          fi
+          for NAME in basictone/lmt_gr/SCLut0 basictone/lmt_gr/LMTLut0 \
+                      basictone/setting_Retro/SimTool.ini \
+                      basictone/pop_port/pld_watermark/pld/pld.json \
+                      basictone/pop_port/apk_resources/json \
+                      basictone/mode_limit_watermark/gr_style_1/gr_style_1.json \
+                      meishe_lut/JG_FILM_KODAK_GOLD_200.cube.rgb.bin; do
+            unzip -Z1 OmniCam-Muse-GT7Pro-KSU.zip | grep -q "^system/odm/etc/camera/$NAME" \
+              || { echo "::error::the mount layer is missing $NAME"; exit 1; }
+          done
+          unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c . || true
+          # What is left in payload/ is only what service.sh writes into an app's own data
+          # directory: the master-colour engine, the gallery's watermark styles, the IPU jar.
+          for DIR in master_color watermark_master_styles watermark_drawables ipu; do
+            printf '%s %s\n' "$DIR" "$(unzip -l OmniCam-Muse-GT7Pro-KSU.zip | grep -c "payload/$DIR/")"
+          done
+          du -h OmniCam-Muse-GT7Pro-KSU.zip OmniCam-Muse-GT7Pro.apk
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "OmniCam Muse GT7 Pro" \
+              --notes "单版本，所有功能按设备能力自动装配。"
+          fi
+          gh release upload "$RELEASE_TAG" OmniCam-Muse-GT7Pro-KSU.zip OmniCam-Muse-GT7Pro.apk --clobber
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | "\(.name) \(.size)"'

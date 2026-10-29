@@ -20,6 +20,9 @@ void onLibraryLoadedForNatural(const char *name);
 // Returns the path to open instead of the tuning json, or null for every other path.
 const char *naturalRemapPath(const char *path, char *buf, size_t n);
 
+// Device config profile (profile_config.cpp): serves the staged per-model configs over the ODM ones.
+const char *profileRemapPath(const char *path, char *buf, size_t n);
+
 // Normal-mode 25MP unlock (unlock25mp.cpp): serves the relaxed config copies while the switch is on.
 const char *unlock25mpRemapPath(const char *path, char *buf, size_t n);
 
@@ -33,6 +36,10 @@ void onLibraryLoadedForSoftLight(HookFunction hook, const char *name, void *hand
 void onLibraryLoadedForGr(HookFunction hook, const char *name, void *handle);
 // True while BasicTone processes a master capture (set by the GR port's processCore hook).
 bool basicToneMasterFrame();
+// The GR tone-table directory that is actually readable, or nullptr when none is. The merged tree
+// is a module mount KernelSU can remove from the camera process alone, so service.sh also keeps a
+// copy in the camera's private files and this picks whichever answered. Probed once per process.
+const char *grLmtDirectory();
 
 // Master LUT slots (master_lut_slots.cpp): called for every library the camera process loads.
 void onLibraryLoadedForLutSlots(HookFunction hook, const char *name, void *handle);

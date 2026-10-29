@@ -23,6 +23,8 @@ public final class DiagnosticsContract {
     public static final String KEY_APK = "apk";
     /** The module APK the hooks were loaded from. */
     public static final String KEY_MODULE_APK = "moduleApk";
+    /** One line per feature: {@code status\tfeature\treason}, from the process that installed them. */
+    public static final String KEY_FEATURE_STATUS = "featureStatus";
     public static final String KEY_SYMBOLS_RESOLVED = "symbolsResolved";
     public static final String KEY_SYMBOLS_MISSING = "symbolsMissing";
     /** Number of error lines (hooks that failed to install or failed at run time). */

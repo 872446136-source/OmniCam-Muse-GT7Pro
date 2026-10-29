@@ -10,6 +10,7 @@ add_library(jiege_native SHARED
     native_entry.cpp
     gr_basictone.cpp
     pop_path_remap.cpp
+    profile_config.cpp
     natural_mode.cpp
     unlock25mp.cpp
     face200m.cpp

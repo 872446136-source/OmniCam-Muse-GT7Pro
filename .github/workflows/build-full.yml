@@ -82,6 +82,25 @@ jobs:
           python3 tools/mslut.py fix module/payload/meishe_lut
           python3 tools/mslut.py info module/payload/meishe_lut/qing_tou.bin module/payload/meishe_lut/hu_po.bin
 
+          # 492: the film LUTs the camera asks for but this firmware does not ship.
+          #
+          # POP's film strip maps to com.oplus.camera.filter.FilterHelper's table: Portra胶片 ->
+          # portra400_*, 正片胶片 -> positive_*, NC/CC -> fuji-*, 800T -> 800t_*. The GT7 Pro's own
+          # /odm/etc/camera/meishe_lut has every one of those except the eight positive_* files, and
+          # upstream's payload does not carry them either, so 正片胶片 is the one filter in the strip
+          # that renders black. The device says so itself, once per frame:
+          #
+          #   E/meicam: Failed to open lut file /odm/etc/camera/meishe_lut/positive_sdr_gen_a_1.bin
+          #   E/meicam: Failed to open lut file /odm/etc/camera/meishe_lut/positive_sdr_gen_d_1.bin
+          #
+          # The copies here come from the B6 port's /odm tree, in version 3 / 17^3 — the shape this
+          # firmware loads (its own portra400_* are the same 14855 bytes). They are copied after the
+          # resample step so they are never rewritten.
+          cp -a module/lut_extra/. module/payload/meishe_lut/
+          for f in module/lut_extra/*.bin; do
+            python3 tools/mslut.py info "$f"
+          done
+
           # The retro BasicTone opens "<setting dir>/SimTool.ini" — that exact name is the only one
           # libBasicTonePhoto.so knows ("%s/SimTool.ini"). Upstream's payload ships SimTool_Master.ini
           # and SimTool_Photo_Master.ini instead, so the retro path found no settings at all and came

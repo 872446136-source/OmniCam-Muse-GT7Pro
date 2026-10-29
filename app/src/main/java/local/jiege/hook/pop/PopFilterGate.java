@@ -73,6 +73,7 @@ final class PopFilterGate {
     private static volatile boolean reportedInstall;
     private static volatile boolean reportedClear;
     private static volatile boolean reportedFallback;
+    private static volatile boolean reportedRefusal;
 
     private PopFilterGate() {}
 
@@ -220,6 +221,17 @@ final class PopFilterGate {
         XposedBridge.hookMethod(click, unstick);
         XposedBridge.hookMethod(touch, unstick);
         XposedBridge.hookMethod(ready, unstick);
+        // 492: the flag can be clear and the shutter still do nothing. The click override returns a
+        // boolean and the camera acts on it, so say so once instead of leaving the report with only
+        // "no photo".
+        XposedBridge.hookMethod(click, new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                if (Boolean.TRUE.equals(param.getResult())) return;
+                if (reportedRefusal) return;
+                reportedRefusal = true;
+                Log.i(TAG, "shutter click returned false, flags " + describe(read(param.thisObject)));
+            }
+        });
         if (!reportedInstall) {
             reportedInstall = true;
             Log.i(TAG, "POP filter gate installed on " + type.getName() + " via " + how + ", switching flag "

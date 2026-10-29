@@ -4,6 +4,13 @@
       "kind": "class",
       "name": "com.oplus.camera.module.BaseMode"
     },
+    "BaseMode.fallbackStable": {
+      "kind": "method",
+      "in": "@BaseMode",
+      "params": ["boolean", "boolean"],
+      "ret": "boolean",
+      "strings": ["isFallBackStable, wait fallback be stable to capture, isFallbackMatched: "]
+    },
     "GrMode": {
       "kind": "class",
       "strings": [

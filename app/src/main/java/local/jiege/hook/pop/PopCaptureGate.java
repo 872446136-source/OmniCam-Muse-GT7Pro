@@ -9,6 +9,7 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import local.jiege.hook.common.Log;
+import local.jiege.hook.common.Symbols;
 
 /**
  * POP (retro camera): the shutter does nothing, and the camera says so itself.
@@ -54,6 +55,7 @@ final class PopCaptureGate {
 
     private static volatile boolean reportedFix;
     private static volatile boolean reportedScope;
+    private static volatile boolean reportedStable;
 
     private PopCaptureGate() {}
 
@@ -89,6 +91,58 @@ final class PopCaptureGate {
                 + "(" + decision.getName() + ", boolean, boolean), camera id field " + id.getName());
         } catch (Throwable error) {
             Log.e(TAG, "POP capture gate unavailable", error);
+        }
+        skipFallbackWait();
+    }
+
+    /**
+     * The second wall, found on the device right after the first one fell: {@code Td} then asks
+     * {@code BaseMode.jc(boolean, boolean)} whether the pipeline fallback has settled, and on this
+     * phone it never does.
+     *
+     * <pre>
+     *   OCAM_t1_BaseMode: isFallBackStable, wait fallback be stable to capture,
+     *                     isFallbackMatched: true, isMasterPipelineMatched: false
+     *   OCAM_AutoLogHelper: tryCatchCaptureFailedLog, reason: CF_WAIT_FALLBACK
+     * </pre>
+     *
+     * <p>{@code jc} returns true when {@code kc()} says the device does not want this check, or when
+     * {@code nd()} says the fallback is stable. {@code kc()} reads three {@code CameraConfig}
+     * booleans ({@code com.oplus.capture.wait.fallback.stable.support} among them) and this firmware
+     * wants the check; {@code nd()} asks the UI layer for a flag that POP never sets.
+     *
+     * <p>Worse than a plain refusal, the wait branch also writes {@code P/Q/R/X} on the mode and
+     * disables the shutter, so the next press is refused earlier with
+     * {@code CF_SHUTTER_BUTTON_IS_NOT_CLICKABLE} — the "press it and nothing happens" in the report.
+     *
+     * <p>So the wait is skipped for the retro mode only, before the body runs: the shutter goes
+     * straight on to the capture with whatever pipeline the preview is already showing. Every other
+     * mode keeps the wait exactly as the camera has it.
+     */
+    private static void skipFallbackWait() {
+        try {
+            Symbols symbols = Symbols.get();
+            if (!symbols.has("BaseMode.fallbackStable")) {
+                Log.i(TAG, "POP capture gate: no BaseMode.fallbackStable symbol, POP keeps waiting on a "
+                    + "fallback that never settles on this phone");
+                return;
+            }
+            Method stable = symbols.method("BaseMode.fallbackStable");
+            XposedBridge.hookMethod(stable, new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!inRetroMode(param.thisObject)) return;
+                    param.setResult(Boolean.TRUE);
+                    if (!reportedStable) {
+                        reportedStable = true;
+                        Log.i(TAG, "POP capture: the fallback-stable wait is skipped in POP, it never "
+                            + "settles on this phone and it also disables the shutter");
+                    }
+                }
+            });
+            Log.i(TAG, "POP capture gate: fallback-stable wait skipped in POP (" + BASE_MODE + "."
+                + stable.getName() + ")");
+        } catch (Throwable error) {
+            Log.e(TAG, "POP capture gate could not skip the fallback wait", error);
         }
     }
 

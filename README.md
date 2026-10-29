@@ -2,7 +2,7 @@
 
 > ## 这个仓库是 GT7 Pro 的 Lite fork
 >
-> 目标机型：**真我 GT7 Pro（RMX5010）**，ColorOS 17，相机 `com.oplus.camera` **7.013.40**，相册 `com.coloros.gallery3d` **17.10.41**（当前版本 `Muse 4.24 GT7Pro` / 493）。
+> 目标机型：**真我 GT7 Pro（RMX5010）**，ColorOS 17，相机 `com.oplus.camera` **7.013.40**，相册 `com.coloros.gallery3d` **17.10.41**（当前版本 `Muse 4.24 GT7Pro` / 494）。
 > 上游 [OmniCam-Muse](https://github.com/benbaobaoshigemi/OmniCam-Muse) 面向 OPPO Find X9 Ultra（PMA110，相机 7.006.119）。
 >
 > 拿到 GT7 Pro 的 `/odm` 原始数据后实测确认：两台机器**不是同一配置世代**——决策配置格式不同、原生管线类族不同（本机只有 `24019`，没有 `25021`）、大师色彩与 XPAN 开关为 0、模式库里没有 GR / POP。**不能整包照搬。**

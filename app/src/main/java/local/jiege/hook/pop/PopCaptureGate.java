@@ -53,9 +53,14 @@ final class PopCaptureGate {
     /** The decision class and its camera id, once found. */
     private static volatile Field cameraId;
 
+    /** The preview decision type, kept so the pre-EV-list step can scan the mode's fields. */
+    private static volatile Class<?> decisionType;
+
     private static volatile boolean reportedFix;
     private static volatile boolean reportedScope;
     private static volatile boolean reportedStable;
+    private static volatile boolean reportedPreEvList;
+    private static volatile boolean reportedSource;
 
     private PopCaptureGate() {}
 
@@ -81,10 +86,12 @@ final class PopCaptureGate {
                 return;
             }
             cameraId = id;
+            decisionType = decision;
 
             XposedBridge.hookMethod(decide, new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
                     align(param, current);
+                    startPreEvList(param);
                 }
             });
             Log.i(TAG, "POP capture gate installed: " + BASE_MODE + "." + decide.getName()
@@ -93,6 +100,7 @@ final class PopCaptureGate {
             Log.e(TAG, "POP capture gate unavailable", error);
         }
         skipFallbackWait();
+        reportDecisionSource();
     }
 
     /**
@@ -174,6 +182,157 @@ final class PopCaptureGate {
         } catch (Throwable error) {
             Log.e(TAG, "POP capture gate could not align the decision camera id", error);
         }
+    }
+
+    /**
+     * The third wall, found on the device after the second one fell: with the shutter finally
+     * allowed, the capture request goes out with no decision timestamp and the APS refuses it three
+     * milliseconds later.
+     *
+     * <pre>
+     *   OCAM_t1_BaseMode: onSendCaptureRequestCore, send, decisionTimestamp: -1, ...
+     *   CameraUnit, ProducerImpl: takePicture, not allow take picture, ... checkResult: 1
+     *   OCAM_ApsService: onCaptureFailed, requestId: ...
+     * </pre>
+     *
+     * <p>{@code BaseMode.bh} builds the request's decision timestamp as
+     * {@code g.t = this.X1; long ts = (g.t != null) ? g.t.M0 : -1}. {@code X1} is the decision the
+     * mode accepted for this capture, and it is written in exactly one place:
+     * {@code BaseMode.Vi(cb.e)} — {@code startPreEvList}. Stock calls it from
+     * {@code onPreviewDecisionResult} once {@code needCapture} is set; the 494 run shows it never ran
+     * in POP at all ({@code startPreEvlist} appears once in the whole session, in the photo mode
+     * capture that followed), so {@code X1} stayed null.
+     *
+     * <p>So POP gets the step it skipped: {@code Vi} is called with the decision {@code n8} was just
+     * handed, before the request is built. {@code Vi} is not forced — it keeps every one of its own
+     * guards (pre-EV-list support, night/burst limits, a duplicate decision) and its answer is
+     * logged. Only when it declines does this write the decision into the mode's decision fields
+     * itself, which is the single thing {@code Vi} would have done.
+     */
+    private static void startPreEvList(XC_MethodHook.MethodHookParam param) {
+        if (param.args.length < 1 || param.args[0] == null) return;
+        if (!inRetroMode(param.thisObject)) return;
+        Object decision = param.args[0];
+        Method start = startPreEvListMethod();
+        if (start == null) {
+            if (!reportedPreEvList) {
+                reportedPreEvList = true;
+                Log.i(TAG, "POP capture: no BaseMode.startPreEvList symbol, the capture request keeps "
+                    + "the camera's own decision timestamp");
+            }
+            return;
+        }
+        try {
+            Object answer = start.invoke(param.thisObject, decision);
+            boolean accepted = Boolean.TRUE.equals(answer);
+            if (!reportedPreEvList) {
+                reportedPreEvList = true;
+                Log.i(TAG, "POP capture: startPreEvList called for the retro mode, the camera answered "
+                    + answer + (accepted
+                        ? "; the request now carries the preview decision's timestamp"
+                        : "; storing the decision on the mode so the request still carries it"));
+            }
+            if (!accepted) {
+                storeDecision(param.thisObject, decision);
+            }
+        } catch (Throwable error) {
+            Log.e(TAG, "POP capture: startPreEvList failed, storing the decision instead", error);
+            storeDecision(param.thisObject, decision);
+        }
+    }
+
+    private static volatile Method startPreEvList;
+
+    private static Method startPreEvListMethod() {
+        Method cached = startPreEvList;
+        if (cached != null) return cached;
+        try {
+            Symbols symbols = Symbols.get();
+            if (!symbols.has("BaseMode.startPreEvList")) return null;
+            cached = symbols.method("BaseMode.startPreEvList");
+            startPreEvList = cached;
+            return cached;
+        } catch (Throwable error) {
+            Log.e(TAG, "POP capture: startPreEvList symbol unusable", error);
+            return null;
+        }
+    }
+
+    /**
+     * Writes the decision into every field of the decision type the mode declares — that is
+     * {@code X1} and {@code Y1} (both set together by {@code Vi}) and nothing else on this build.
+     * Named in the log so a build with a different field set is obvious in the report.
+     */
+    private static void storeDecision(Object mode, Object decision) {
+        Class<?> type = decisionType;
+        if (type == null) return;
+        StringBuilder names = new StringBuilder();
+        try {
+            for (Field field : mode.getClass().getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())) continue;
+                if (field.getType() != type) continue;
+                field.setAccessible(true);
+                field.set(mode, decision);
+                if (names.length() > 0) names.append(',');
+                names.append(field.getName());
+            }
+        } catch (Throwable error) {
+            Log.e(TAG, "POP capture: the decision could not be stored on the mode", error);
+            return;
+        }
+        if (!reportedSource) {
+            reportedSource = true;
+            Log.i(TAG, "POP capture: decision stored on " + mode.getClass().getSimpleName()
+                + " fields " + (names.length() == 0 ? "(none found)" : names));
+        }
+    }
+
+    /**
+     * Read-only: says whether the capture request really found a decision, by looking at the mode's
+     * decision field from inside {@code onSendCaptureRequestCore} — the method that turns it into
+     * {@code decisionTimestamp}. One line per process, on the first capture.
+     */
+    private static void reportDecisionSource() {
+        try {
+            Symbols symbols = Symbols.get();
+            if (!symbols.has("BaseMode.sendCaptureRequestCore")) {
+                Log.i(TAG, "POP capture gate: no BaseMode.sendCaptureRequestCore symbol, the decision "
+                    + "timestamp cannot be reported");
+                return;
+            }
+            Method build = symbols.method("BaseMode.sendCaptureRequestCore");
+            XposedBridge.hookMethod(build, new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!inRetroMode(param.thisObject)) return;
+                    if (reportedDecision) return;
+                    reportedDecision = true;
+                    Log.i(TAG, "POP capture: the request is built with the mode's decision " + currentDecision(param.thisObject));
+                }
+            });
+            Log.i(TAG, "POP capture gate: decision timestamp reporter armed (" + BASE_MODE + "."
+                + build.getName() + ")");
+        } catch (Throwable error) {
+            Log.e(TAG, "POP capture gate could not arm the decision reporter", error);
+        }
+    }
+
+    private static volatile boolean reportedDecision;
+
+    private static String currentDecision(Object mode) {
+        Class<?> type = decisionType;
+        if (type == null) return "(decision type unknown)";
+        try {
+            for (Field field : mode.getClass().getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())) continue;
+                if (field.getType() != type) continue;
+                field.setAccessible(true);
+                Object value = field.get(mode);
+                return field.getName() + "=" + (value == null ? "null" : describe(value));
+            }
+        } catch (Throwable error) {
+            return "(unreadable: " + error + ")";
+        }
+        return "(no decision field)";
     }
 
     /**

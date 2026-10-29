@@ -7,9 +7,14 @@
     "BaseMode.fallbackStable": {
       "kind": "method",
       "in": "@BaseMode",
-      "params": ["boolean", "boolean"],
+      "params": [
+        "boolean",
+        "boolean"
+      ],
       "ret": "boolean",
-      "strings": ["isFallBackStable, wait fallback be stable to capture, isFallbackMatched: "]
+      "strings": [
+        "isFallBackStable, wait fallback be stable to capture, isFallbackMatched: "
+      ]
     },
     "GrMode": {
       "kind": "class",
@@ -2350,6 +2355,22 @@
         "eb.e"
       ],
       "ret": "void"
+    },
+    "BaseMode.startPreEvList": {
+      "kind": "method",
+      "in": "@BaseMode",
+      "ret": "boolean",
+      "contains": [
+        "startPreEvlist, finalMergeArray: "
+      ]
+    },
+    "BaseMode.sendCaptureRequestCore": {
+      "kind": "method",
+      "in": "@BaseMode",
+      "ret": "long",
+      "contains": [
+        "onSendCaptureRequestCore, send, decisionTimestamp: "
+      ]
     }
   },
   "gallery": {

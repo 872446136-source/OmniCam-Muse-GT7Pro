@@ -204,6 +204,11 @@ public final class SymbolSearch {
         if (s.has("ret")) matcher.returnType(typeName(s.getString("ret")));
         List<String> strings = strings(s, "strings");
         if (!strings.isEmpty()) matcher.usingEqStrings(strings);
+        // "contains" is the looser form: the method uses these strings somewhere, it does not have to
+        // use only them. Needed for methods that carry a dozen log lines, where listing the whole set
+        // would make the symbol unreadable and would break on the next log line the vendor adds.
+        List<String> contains = strings(s, "contains");
+        if (!contains.isEmpty()) matcher.usingStrings(contains);
         JSONArray numbers = s.optJSONArray("numbers");
         if (numbers != null) {
             List<Number> values = new ArrayList<>();

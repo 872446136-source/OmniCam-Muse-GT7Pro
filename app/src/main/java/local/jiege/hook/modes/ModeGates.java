@@ -131,20 +131,25 @@ public final class ModeGates {
     private static final String[] STRING_VALUES = {"2.0", "3840x2160"};
 
     /**
-     * The three XPAN picture sizes, filled only when the camera's own answer is null.
+     * The three XPAN picture sizes, answered outright.
      *
      * <p>488. {@code XpanMode.T9} asks {@code CameraConfig.getSizeConfigValue} for
      * {@code com.oplus.xpan.main.picturesize} (or the wide one, depending on the lens) and that is
-     * the size the XPAN capture is requested at. With the key absent the call answers null, the mode
-     * falls back to the ordinary 4:3 size, and the crop region below no longer fits the frame —
-     * which is exactly the 487 report: XPAN opens, shoots, and saves a 3072x4096 photo instead of a
-     * 7872x2912 frame. See {@link #hookSizeGetters}.
+     * the size the XPAN photo is saved at. With the key absent the call answers null, the mode falls
+     * back to the ordinary 4:3 size, and the crop region below no longer fits the frame — which is
+     * exactly the 487 report: XPAN opens, shoots, and saves a 3072x4096 photo instead of a 7872x2912
+     * frame. See {@link #hookSizeGetters}.
      *
-     * <p>488 then answered {@code 8000x3636} from this phone's own config, and the 488 log proves it
-     * is the one that was used. That number is not a mistake: it is the <em>buffer</em> the region
-     * below cuts the strip out of — 360+2912+360 = 3632 and 64+7872+64 = 8000 — so the output is the
-     * region (2912x7872 portrait), not the buffer. The size is therefore still only filled when the
-     * camera has nothing; the region is what was broken.
+     * <p><b>489 filled this only when the camera had nothing, and the 490 reference check showed
+     * that was the wrong half of the fix.</b> This phone's {@code oplus_camera_config} answers
+     * {@code 8000x3636} for all three keys. 489 took that to be the capture buffer — 360+2912+360 =
+     * 3632 and 64+7872+64 = 8000 do add up — and left it alone. The original author's own module for
+     * PMA110 (OmniCam-Muse 4.4.4) and the Aura port for PLK110 both ship a config that answers
+     * {@code 7872x2912} for the very same three keys, with the very same crop regions. So
+     * {@code 8000x3636} is not a buffer size this build should keep: it is realme's placeholder, and
+     * it is the <em>output</em> size — the region is 2912x7872, and an output of 8000x3636 cannot
+     * hold that region, which is why 488/489 saved a tall canvas with the uncropped frame in its
+     * corner. The size is now answered outright, exactly like the region.
      */
     private static final String[] SIZE_KEYS = {
         "com.oplus.xpan.main.picturesize",
@@ -160,10 +165,10 @@ public final class ModeGates {
      * and stores them as the viewfinder region, the mask and the coordinate the watermark
      * composite places the photo at. This phone's {@code oplus_camera_config} is encrypted, and the
      * keys never reach the app's config map, so {@code l} hands back the default — an empty array —
-     * and every consumer sees "no crop". The values are the ones this firmware's own config carries
-     * for an 3636x8000 buffer — the short side of {@code com.oplus.xpan.main.picturesize}
-     * ({@code 8000x3636}), which is why 360+2912+360 and 64+7872+64 add up to it exactly:
-     * portrait x,y,w,h = 360,64,2912,7872 and landscape 64,360,7872,2912.
+     * and every consumer sees "no crop". The values are the ones the original author's own module
+     * (OmniCam-Muse 4.4.4 for PMA110) and the Aura port for PLK110 both ship, byte for byte:
+     * portrait x,y,w,h = 360,64,2912,7872 and landscape 64,360,7872,2912, cut out of the sensor's
+     * 3636x8000 frame and saved at 7872x2912 — the size {@link #SIZE_VALUES} answers.
      *
      * <p><b>488 forced these only when empty and the 488 report shows the result.</b> XPAN produced
      * a tall canvas with the uncropped 4:3 frame in its top-left corner: the region never reached
@@ -387,11 +392,11 @@ public final class ModeGates {
     }
 
     /**
-     * {@code CameraConfig.getSizeConfigValue(String, boolean) Size} — the XPAN capture size.
+     * {@code CameraConfig.getSizeConfigValue(String, boolean) Size} — the XPAN output size.
      *
      * <p>{@code XpanMode.T9} asks this for {@code com.oplus.xpan.main.picturesize} and hands the
-     * result to the capture request. Filled only when the camera has nothing, so a firmware that
-     * already answers it keeps its own value and this hook never overrides a real size.
+     * result to the capture request. Answered outright: see {@link #SIZE_VALUES} for why this
+     * phone's {@code 8000x3636} is not kept.
      */
     private static void hookSizeGetters(Class<?> config) {
         int armed = 0;
@@ -407,18 +412,16 @@ public final class ModeGates {
                         if (!(key instanceof String)) return;
                         int index = indexOfSize((String) key);
                         if (index < 0) return;
-                        Object answer = param.getResult();
-                        if (answer instanceof android.util.Size) {
-                            android.util.Size found = (android.util.Size) answer;
-                            if (found.getWidth() > 0 && found.getHeight() > 0) {
-                                if (SEEN.add("size:" + key)) log(key + " came from the config: " + found);
-                                return;
-                            }
-                        }
                         android.util.Size size = sizeOf(SIZE_VALUES[index]);
                         if (size == null) return;
+                        Object answer = param.getResult();
+                        if (size.equals(answer)) {
+                            if (SEEN.add("size:" + key)) log(key + " came from the config: " + answer);
+                            return;
+                        }
                         param.setResult(size);
-                        if (SEEN.add("size:" + key)) log(key + " was null, answered " + size);
+                        if (SEEN.add("size:" + key)) log(key + (answer == null
+                            ? " was null, answered " : " was " + answer + ", answered ") + size);
                     }
                 });
                 armed++;

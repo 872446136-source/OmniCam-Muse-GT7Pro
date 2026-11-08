@@ -227,19 +227,24 @@ public final class ConfigProfile {
                 return null;
             }
             for (String mode : MANAGED_MODES) {
-                if (shippedOps.has(mode)) liveOps.put(mode, shippedOps.get(mode));
+                if (shippedOps.has(mode)) putTyped(liveOps, mode, shippedOps.get(mode), mode);
             }
             if (shippedOps.has(MANAGED_OVERRIDE)) {
-                liveOps.put(MANAGED_OVERRIDE, shippedOps.get(MANAGED_OVERRIDE));
+                putTyped(liveOps, MANAGED_OVERRIDE, shippedOps.get(MANAGED_OVERRIDE),
+                    MANAGED_OVERRIDE);
             }
             for (String mode : MANAGED_FEATURES) {
-                if (shippedFeatures.has(mode)) liveFeatures.put(mode, shippedFeatures.get(mode));
+                if (shippedFeatures.has(mode)) {
+                    putTyped(liveFeatures, mode, shippedFeatures.get(mode), mode);
+                }
             }
             JSONObject shippedCases = shipped.optJSONObject("usecase_info");
             JSONObject liveCases = live.optJSONObject("usecase_info");
             if (shippedCases != null && liveCases != null) {
                 for (String useCase : MANAGED_USECASES) {
-                    if (shippedCases.has(useCase)) liveCases.put(useCase, shippedCases.get(useCase));
+                    if (shippedCases.has(useCase)) {
+                        putTyped(liveCases, useCase, shippedCases.get(useCase), useCase);
+                    }
                 }
             }
             for (java.util.Iterator<String> it = shippedLists.keys(); it.hasNext(); ) {
@@ -255,6 +260,78 @@ public final class ConfigProfile {
             Log.e(TAG, "live config merge failed, the shipped copy is served as is", error);
             return null;
         }
+    }
+
+    /**
+     * Writes one module-owned entry over the device's copy, but only as far as the two agree.
+     *
+     * <p>The shipped table was written against one camera build. A later build can move a column
+     * from text to integer, or turn a value into an object; overwriting it with the old shape is
+     * how the camera ends up reading an {@code Integer} where it expects a {@code String} and
+     * dying inside {@code Camera.onCreate}. The entry the device already has is the one the camera
+     * on this phone was compiled against, so a shape it disagrees about is left alone: the mode
+     * may lose the parameters this module would have added, but the camera still starts.
+     */
+    private static void putTyped(JSONObject live, String key, Object shipped, String what) {
+        Object current = live.opt(key);
+        if (current == null) {
+            try {
+                live.put(key, shipped);
+            } catch (Throwable error) {
+                Log.e(TAG, "config: cannot add " + what, error);
+            }
+            return;
+        }
+        Object agreed = agree(shipped, current);
+        if (agreed == null) {
+            Log.i(TAG, "config: " + what + " left as the device has it, the shapes disagree");
+            return;
+        }
+        try {
+            live.put(key, agreed);
+        } catch (Throwable error) {
+            Log.e(TAG, "config: cannot write " + what, error);
+        }
+    }
+
+    /**
+     * The shipped entry over the device's entry: keys the device added are kept, keys the module
+     * adds are added, a key both have keeps the device's type unless every level below it agrees.
+     * Null when the two cannot be reconciled, and the caller then keeps the device's entry.
+     */
+    private static Object agree(Object shipped, Object live) {
+        if (shipped instanceof JSONObject && live instanceof JSONObject) {
+            JSONObject target = (JSONObject) live;
+            JSONObject source = (JSONObject) shipped;
+            JSONObject merged = new JSONObject();
+            try {
+                for (java.util.Iterator<String> it = target.keys(); it.hasNext(); ) {
+                    String key = it.next();
+                    merged.put(key, target.get(key));
+                }
+                for (java.util.Iterator<String> it = source.keys(); it.hasNext(); ) {
+                    String key = it.next();
+                    Object want = source.get(key);
+                    if (!merged.has(key)) {
+                        merged.put(key, want);
+                        continue;
+                    }
+                    Object both = agree(want, merged.get(key));
+                    if (both == null) return null;
+                    merged.put(key, both);
+                }
+            } catch (Throwable error) {
+                return null;
+            }
+            return merged;
+        }
+        if (shipped instanceof JSONArray && live instanceof JSONArray) return shipped;
+        if (shipped instanceof JSONObject || live instanceof JSONObject) return null;
+        if (shipped instanceof JSONArray || live instanceof JSONArray) return null;
+        if (shipped instanceof Number && !(live instanceof Number)) return null;
+        if (shipped instanceof Boolean && !(live instanceof Boolean)) return null;
+        if (shipped instanceof String && !(live instanceof String)) return null;
+        return shipped;
     }
 
     /**

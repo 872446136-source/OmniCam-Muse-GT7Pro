@@ -156,8 +156,11 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
             // through FeatureManager's loop and out of the main looper. This keeps that to one
             // feature's init instead of the process.
             PresenterGuard.installCamera(classLoader);
+            // The camera APK goes in too: a camera update can change the mode table's columns, and
+            // the camera reads them back through its own types (see ModeDataReset).
             ModeDataReset.ensure(param.appInfo != null && param.appInfo.dataDir != null
-                ? param.appInfo.dataDir : "/data/user/0/" + CAMERA);
+                ? param.appInfo.dataDir : "/data/user/0/" + CAMERA,
+                param.appInfo != null ? param.appInfo.sourceDir : null);
         }
 
         // The native half carries the in-process path redirection (master colour live tables, GR LMT,

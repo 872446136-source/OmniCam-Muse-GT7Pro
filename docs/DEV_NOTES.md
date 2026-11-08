@@ -61,3 +61,20 @@ git cherry-pick -x <上游提交>       # -x 保留来源，看历史知道这�
 1. 用 `GT7Pro-适配/tools/replay_gt7pro.py` 对相机、相册 APK 回放一遍符号表，看新增的符号在本机包上能不能落到位。
 2. `build.ps1` 或 CI 编一次，确认新加的 C++ 源文件都进了 `CMakeLists.txt`。
 3. 刷机后看「注入状态」页，新增功能的条目应该是 on；是 failed 的说明符号没对上或 API 变了。
+
+## 相机点开就退
+
+先分清是谁退的。「注入状态」页红了并不等于模块有问题：符号缺失是逐条接住的，只会让对应功能不装，进程照常起来。退出的证据只有一份，`logcat -b crash` 里那段 `Caused by:`。
+
+相机自己在 `Camera.onCreate` 里最先做的事是读模式库：
+
+```
+ClassCastException: java.lang.Integer cannot be cast to java.lang.String
+	at mp.h.c(DataBaseOperator.java:75)
+	at mp.h.h(DataBaseOperator.java:335)
+	at mp.h.<init>(DataBaseOperator.java:84)
+```
+
+`mp.h` 是混淆后的 `DataBaseOperator`，`databases/mode_data.db` 的封装（480 那代叫 `dq.e`）。它在构造时把表逐行按字符串读一遍，所以**相机一升级就可能炸在这里**：表还是旧版本建的，列类型变了。处理办法是让 `ModeDataReset` 跟着相机 APK 的安装身份走（见 `RELEASE-499.md`），而不是去 hook 那个类——类名每个版本都在变，写出来的钩子只会「装上了但匹配不到」。
+
+同理，`ConfigProfile.merge` 覆盖前要逐层对类型，形状不一致就留设备的：profile 是按一个相机版本写的，整块盖上去是同一个 `Integer cannot be cast to String` 的另一个来源。

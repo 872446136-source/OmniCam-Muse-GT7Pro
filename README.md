@@ -5,10 +5,10 @@
 | 项目 | 值 |
 |---|---|
 | 适配机型 | 真我 GT7 Pro（RMX5010），ColorOS 17 |
-| 相机 / 相册 | `com.oplus.camera` 7.013.40 / `com.coloros.gallery3d` 17.10.41 |
+| 相机 / 相册 | `com.oplus.camera` 7.013.51 / `com.coloros.gallery3d` 17.10.41 |
 | 模块 ID | `ricoh_pop_x9u` |
 | 设置应用 | `local.jiege.camera`（随模块一起安装） |
-| 当前版本 | Muse 4.25 GT7Pro（versionCode 497） |
+| 当前版本 | Muse 4.27 GT7Pro（versionCode 499） |
 | 上游基线 | Muse 4.4.4（`benbaobaoshigemi/OmniCam-Muse`） |
 
 本仓库是**完整版**：只有一个包，没有 Lite 分支，也没有 Lite 功能表。所有功能都编译进同一个 APK，装到手机上时再按本机实际能力逐项决定开不开——挂载缺了、符号对不上、模式表里没有的，那一项就不装。设置应用的「注入状态」页会列出每一项的结果和原因，不用看日志猜。
@@ -140,6 +140,10 @@ $env:OMNICAM_PYTHON = 'python'
 
 - **POP 快门偶发不出片**。496 定位到相机单元 SDK 里的 `ModeInterface.isAllowedToTakePicture` 返回 1，起因是 SDK 手里的预览帧数还是模式打开时的旧值。496 加了 `PopSdkGate`，在按压窗口内把 app 已接受的帧数写回 SDK，并把判定原因打进日志，等实机日志确认。498 让这个帧数改成可读地取（`mMultiFrameCount` → `f` → `getMultiFrameCount()`），读不到时日志会说明，不再静默按 1 处理。
 - **哈苏水印相机侧 NPE**。`BaseWatermarkManager.getWatermarkJson-aiMaster` 读 `/photo_watermark/<style>`，这台机器的 ODM 里整个目录不存在，返回 null 之后 `isSystemRegionOverScope(null)` 抛 NPE。498 只在输入为 null 时回答 false，方法体不再执行，null 也不被解引用；缺的样式资源本身仍需要一台有哈苏样式的机器上的文件才能补。
+- **相机 7.013.51 有 14 个符号落空**，相机从 7.013.40 升级后 R8 重排，写死名字的那批全部匹配不到。
+  这些是逐个接住的，只有对应功能降级：快门声、POP 快门按钮的渐变重绘、物理柔光的成片那一半、
+  哈苏超清的入口按钮、快速滤镜面板。拍照、GR、POP、XPAN、大师色彩、柔光取景、成片转储都正常。
+  补它需要 7.013.51 的相机 APK 重新对一遍名字，见 `docs/RELEASE-499.md`。
 - **正片胶片**是否恢复正常，还等一次实机确认。
 
 ## 目录

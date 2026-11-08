@@ -29,7 +29,6 @@ sec "模块目录"
 ls -la "$MOD" >> "$OUT" 2>&1
 say "--- module.prop"
 cat "$MOD/module.prop" >> "$OUT" 2>&1
-say "--- lite 标记: $([ -f "$MOD/lite" ] && echo 存在（Lite 构建） || echo 不存在（full-port 测试构建）)"
 say "--- payload: $([ -d "$MOD/payload" ] && du -sh "$MOD/payload" 2>/dev/null || echo 不存在)"
 say "--- system:  $([ -d "$MOD/system" ] && du -sh "$MOD/system" 2>/dev/null || echo 不存在)"
 say "--- 开关: off=$([ -f /data/adb/omnicam_fullport_off ] && echo 有 || echo 无) nolib=$([ -f /data/adb/omnicam_fullport_nolib ] && echo 有 || echo 无)"

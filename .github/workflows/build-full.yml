@@ -22,8 +22,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Upstream commit the data layer is taken from. Bump it when the fork is re-synced.
-  UPSTREAM_SHA: 8f373e10b17c95532a3ff2f41c4777ca797da947
+  # Upstream commit the data layer is taken from (Muse 4.4.4). Bump it when the fork is re-synced;
+  # the pinned data has to match the code this branch was ported from.
+  UPSTREAM_SHA: 03f199ce6d94d206718f51cfbecd6466d9bc5347
   RELEASE_TAG: full
 
 jobs:
@@ -242,7 +243,7 @@ jobs:
       - name: Package the KernelSU module
         run: |
           set -eux
-          cp OmniCam-Muse-GT7Pro.apk module/omnicam-muse-lite.apk
+          cp OmniCam-Muse-GT7Pro.apk module/omnicam-muse-gt7pro.apk
           python3 tools/zip_module.py module OmniCam-Muse-GT7Pro-KSU.zip
           # Guard rails. A library anywhere in the zip used to be the black-screen bug this build
           # exists to remove. Since 486 there is exactly one allowed exception — the Meishe GPU

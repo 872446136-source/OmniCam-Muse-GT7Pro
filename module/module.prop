@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse 4.27 GT7Pro
-versionCode=499
+version=Muse 4.28 GT7Pro
+versionCode=500
 author=local-port
-description=单版本，无 Lite。499 修相机 7.013.51 的启动闪退：相机升级后模式库列类型变了，旧库会让 Camera.onCreate 当场抛 ClassCastException；现在模式库跟着相机包一起重建，配置合并也只覆盖结构一致的部分。
+description=单版本，无 Lite。500：修 499 一开相机就退——模式栏那两个列表的 rank 必须交字符串，499 交了 Integer，相机在 Camera.onCreate 里强转成 String 时直接崩。

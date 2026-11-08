@@ -264,7 +264,7 @@ public final class ModePlacement {
         ArrayList<Object> moved = new ArrayList<>(original.size() + 2);
         moved.addAll(original);
         moved.add(XPAN);
-        moved.add(Integer.valueOf(XPAN_HEADLINE_RANK));
+        moved.add(rankLike(original.get(1), XPAN_HEADLINE_RANK));
         param.setResult(moved);
         log("headline move served: " + moved);
     }
@@ -291,13 +291,38 @@ public final class ModePlacement {
         for (int i = 0; i + 1 < pairs.size(); i += 2) {
             if (i == xpan) continue;
             int other = rank(pairs.get(i + 1));
-            if (other >= XPAN_PANEL_RANK && other < rank) pairs.set(i + 1, other + 1);
+            if (other >= XPAN_PANEL_RANK && other < rank) {
+                pairs.set(i + 1, rankLike(pairs.get(i + 1), other + 1));
+            }
         }
-        pairs.set(xpan + 1, XPAN_PANEL_RANK);
+        pairs.set(xpan + 1, rankLike(pairs.get(xpan + 1), XPAN_PANEL_RANK));
         return true;
     }
 
-    /** Ranks come out of the config as Integer, but a String would silently break the compare. */
+    /**
+     * A rank in the same type the reader handed us.
+     *
+     * <p>This is not a style point: 7.013.51 casts both halves of every pair to {@code String} and
+     * only then calls {@code Integer.parseInt} on the rank
+     * ({@code DataBaseOperator.c}, reached from {@code Camera.s0} on every start). Handing it an
+     * {@code Integer} throws {@code ClassCastException: Integer cannot be cast to String} inside
+     * that cast, before any of the camera's own code runs — the process dies on
+     * {@code Camera.onCreate} every single time. 499 shipped that: the value was built with
+     * {@code Integer.valueOf}, which is what made the camera unusable rather than merely misplaced.
+     *
+     * <p>So mirror what came out of the config instead of assuming. A numeric rank is only
+     * correct on a build that reads the list as numbers, and no build here does.
+     */
+    private static Object rankLike(Object template, int rank) {
+        if (template instanceof Number) return Integer.valueOf(rank);
+        return String.valueOf(rank);
+    }
+
+    /**
+     * Ranks come out of the config as {@code String} on 7.013.51 — the camera parses them with
+     * {@code Integer.parseInt} after casting. Accept a number too, for a build that stops doing
+     * that, but never hand one back (see {@link #rankLike}).
+     */
     private static int rank(Object value) {
         if (value instanceof Number) return ((Number) value).intValue();
         if (value instanceof String) {

@@ -19,3 +19,6 @@
 # python caches
 __pycache__/
 *.pyc
+
+# gradle writes this on every local build; it was committed once by mistake
+/build/reports/

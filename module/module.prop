@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse 4.25 GT7Pro
-versionCode=497
+version=Muse 4.26 GT7Pro
+versionCode=498
 author=local-port
-description=单版本，无 Lite。497 合入上游 4.4.4：物理柔光、旧版滤镜面板、成片转储、哈苏水印兼容。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。
+description=单版本，无 Lite。498 修哈苏水印的相机侧 NPE（水印样式 json 读到 null 时不再断链），并让 POP 的帧数从决策里可读地取。所有功能都装，按本机能力自动装配，诊断页逐项列出开了什么、为什么没开。

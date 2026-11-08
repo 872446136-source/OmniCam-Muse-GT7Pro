@@ -61,6 +61,7 @@ final class PopCaptureGate {
     private static volatile boolean reportedStable;
     private static volatile boolean reportedPreEvList;
     private static volatile boolean reportedSource;
+    private static volatile boolean reportedFrames;
 
     private PopCaptureGate() {}
 
@@ -335,13 +336,64 @@ final class PopCaptureGate {
     /**
      * How many frames the app's own decision says the capture has. The camera unit keeps its own
      * copy of the preview decision and that one is older; this is the number it is missing.
+     *
+     * <p>The decision handed to {@code BaseMode.n8} is {@code cb.e} — an app class, so its field is
+     * a single obfuscated letter ({@code f} on this build) — while the SDK's own
+     * {@code ApsDecisionParameter} keeps the readable name. All three are tried in that order and
+     * the answer is logged once, so a build that renames {@code f} does not silently write
+     * "1 frame" into the SDK's preview result and leave the next report guessing.
      */
     private static int framesOf(Object decision) {
-        if (decision == null) return 1;
-        try {
-            return XposedHelpers.getIntField(decision, "f");
-        } catch (Throwable missing) {
+        if (decision == null) {
+            reportFrames(null, 1);
             return 1;
+        }
+        Object value = readField(decision, "mMultiFrameCount");
+        String source = "mMultiFrameCount";
+        if (!(value instanceof Integer)) {
+            value = readField(decision, "f");
+            source = "f";
+        }
+        if (!(value instanceof Integer)) {
+            value = readCall(decision, "getMultiFrameCount");
+            source = "getMultiFrameCount()";
+        }
+        if (!(value instanceof Integer)) {
+            reportFrames(null, 1);
+            return 1;
+        }
+        int frames = (Integer) value;
+        reportFrames(source, frames);
+        return frames;
+    }
+
+    /** One line per process: which field carried the frame count, and what it said. */
+    private static void reportFrames(String source, int frames) {
+        if (reportedFrames) return;
+        reportedFrames = true;
+        if (source == null) {
+            Log.i(TAG, "POP capture: the app's decision carries no readable frame count "
+                + "(mMultiFrameCount / f / getMultiFrameCount() all absent), the SDK's preview "
+                + "gate is repaired with 1 frame");
+        } else {
+            Log.i(TAG, "POP capture: the app's decision carries " + frames + " frame(s) in "
+                + source + ", that is the number written into the SDK's preview gate");
+        }
+    }
+
+    private static Object readField(Object owner, String name) {
+        try {
+            return XposedHelpers.getObjectField(owner, name);
+        } catch (Throwable missing) {
+            return null;
+        }
+    }
+
+    private static Object readCall(Object owner, String name) {
+        try {
+            return XposedHelpers.callMethod(owner, name);
+        } catch (Throwable missing) {
+            return null;
         }
     }
 

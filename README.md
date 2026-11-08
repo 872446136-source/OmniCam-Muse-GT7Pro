@@ -138,8 +138,8 @@ $env:OMNICAM_PYTHON = 'python'
 
 ## 已知问题
 
-- **POP 快门偶发不出片**。496 定位到相机单元 SDK 里的 `ModeInterface.isAllowedToTakePicture` 返回 1，起因是 SDK 手里的预览帧数还是模式打开时的旧值。496 加了 `PopSdkGate`，在按压窗口内把 app 已接受的帧数写回 SDK，并把判定原因打进日志，等实机日志确认。
-- **哈苏水印相机侧 NPE**。`BaseWatermarkManager.getWatermarkJson-aiMaster` 读 `/photo_watermark/<style>`，这台机器的 ODM 里整个目录不存在，返回 null 之后 `isSystemRegionOverScope(null)` 抛 NPE。尚未处理。
+- **POP 快门偶发不出片**。496 定位到相机单元 SDK 里的 `ModeInterface.isAllowedToTakePicture` 返回 1，起因是 SDK 手里的预览帧数还是模式打开时的旧值。496 加了 `PopSdkGate`，在按压窗口内把 app 已接受的帧数写回 SDK，并把判定原因打进日志，等实机日志确认。498 让这个帧数改成可读地取（`mMultiFrameCount` → `f` → `getMultiFrameCount()`），读不到时日志会说明，不再静默按 1 处理。
+- **哈苏水印相机侧 NPE**。`BaseWatermarkManager.getWatermarkJson-aiMaster` 读 `/photo_watermark/<style>`，这台机器的 ODM 里整个目录不存在，返回 null 之后 `isSystemRegionOverScope(null)` 抛 NPE。498 只在输入为 null 时回答 false，方法体不再执行，null 也不被解引用；缺的样式资源本身仍需要一台有哈苏样式的机器上的文件才能补。
 - **正片胶片**是否恢复正常，还等一次实机确认。
 
 ## 目录

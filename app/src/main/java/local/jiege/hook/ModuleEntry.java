@@ -46,6 +46,7 @@ import local.jiege.hook.video.VideoFilterHighSpec;
 import local.jiege.hook.watermark.HasselWatermark;
 import local.jiege.hook.watermark.ModelSpoof;
 import local.jiege.hook.watermark.VideoWatermarkGuard;
+import local.jiege.hook.watermark.WatermarkNullGuard;
 import local.jiege.hook.watermark.XpanWatermarkIsolation;
 import local.jiege.hook.x10.X10FilterPort;
 import local.jiege.hook.xpan.XpanLivePhoto;
@@ -197,6 +198,11 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         Install.run("4K60 滤镜", true, "", () -> VideoFilterHighSpec.installCamera(classLoader));
         Install.run("机型伪装", true, "", () -> ModelSpoof.installCamera(classLoader));
         Install.run("视频水印保护", true, "", () -> VideoWatermarkGuard.installCamera(classLoader));
+        // 493: 本机 ODM 没有 photo_watermark 目录，水印样式 json 读出来是 null，
+        // MasterWatermarkCreator.isSystemRegionOverScope 第一行就把它解引用。只在输入为 null 时
+        // 介入，有 json 的路径不动。
+        Install.run("哈苏水印空值保护", true, "",
+            () -> WatermarkNullGuard.installCamera(classLoader));
         Install.run("相机日志镜像", true, "", () -> CameraLogMirror.install(classLoader));
 
         // --- data layer: needs the payload mounted, not the native library ---

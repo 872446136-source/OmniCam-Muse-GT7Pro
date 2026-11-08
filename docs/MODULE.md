@@ -22,6 +22,12 @@ Find X9 Ultra（PMA110，相机 7.006.103）上各项功能的原理与涉及文
 
 新版大师水印（`com.oplus.support.new.master.watermark`）的滤镜名来自预设记录的 `filterName`：拍照时取当前滤镜序号的名称（符号 `FilterNames.nameAt`，`getString(名称资源)`），套用预设时由 `PresetDataUtil.applyPresetFilter` 写入。模块新增的大师滤镜借用大师童话的名称资源注册，因此水印都印“大师童话”。`MasterFilmLuts` 在这两处按同序号的滤镜类型（`FilterNames.types`）换成目录里的标题。相册重建水印时按序号在原厂列表里取名（`MasterModeInfo.getRealFilterName`），`GrGalleryWatermark` 改为优先用照片 `master.mode.preset.info` 里存的名称。理光风格的机型文字直接取 `MarketNameInfo`（符号 `MarketName.*`），`ModelSpoof` 也替换它。
 
+## 哈苏水印的地域白名单（相机侧）
+
+水印样式除图案外还有一份"地域白名单"（哈苏商标按地区授权），由 `com.oplus.ocs.ipu.watermark.masterwatermark.MasterWatermarkCreator.isSystemRegionOverScope(JSONObject)` 判定：第一行就是 `json.has("countryCode")`。这份 json 由 `BaseWatermarkManager.getWatermarkJson-aiMaster` 从 `/photo_watermark/<style>` 读，本机 ODM 整个 `photo_watermark` 目录不存在（`basictone/mode_limit_watermark/` 里只有真我 GT 的 `gr_style_1..5`），方法返回 null，调用方 `WatermarkModel`（`cl.e.m`）把它原样传进去，于是每次 `BaseMode.da` / `dh` 都抛 NPE，整条水印流程断在这里。
+
+`hook/watermark/WatermarkNullGuard` 只在参数为 null 时把结果定成 false（不在地域限制范围内），方法体不执行，null 不被解引用；有 json 的正常路径不动。类名未被混淆（IPU SDK），按名字找，不走符号表，找不到就自己关掉并在日志里说明。缺的样式文件本身这一版不补：参考机型（PLK110 的 Aura / Opus、X8 Ultra）的 `watermark_master_styles/` 也只有 `gr_style_1..5`，没有哈苏样式可取。关掉：`/data/adb/omnicam_hasselwm_null_off`。
+
 ## POP 成片的滑杆与 10X
 
 POP 的光感、自然饱和度、色温、色调随拍照参数以 `KEY_MASTER_MODE_*` 送到引擎，成片要生效就必须经过 BasicTone。拍照链路里有四道门：

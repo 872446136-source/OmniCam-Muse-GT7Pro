@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse 4.28 GT7Pro
-versionCode=500
+version=Muse 4.31 GT7Pro
+versionCode=503
 author=local-port
-description=单版本，无 Lite。500：修 499 一开相机就退——模式栏那两个列表的 rank 必须交字符串，499 交了 Integer，相机在 Camera.onCreate 里强转成 String 时直接崩。
+description=单版本，无 Lite。503：相机水印页的哈苏分区补上（相册侧 ShowHasselXpanStyle 本机答 false，整栏只有字标）；XPAN 画幅仍在打通，成片暂为 3636x8000。

@@ -43,12 +43,14 @@ import local.jiege.hook.softlight.SoftLight;
 import local.jiege.hook.tilt.TiltShiftCapture;
 import local.jiege.hook.unlock25mp.Unlock25mp;
 import local.jiege.hook.video.VideoFilterHighSpec;
+import local.jiege.hook.watermark.HasselCameraPage;
 import local.jiege.hook.watermark.HasselWatermark;
 import local.jiege.hook.watermark.ModelSpoof;
 import local.jiege.hook.watermark.VideoWatermarkGuard;
 import local.jiege.hook.watermark.WatermarkNullGuard;
 import local.jiege.hook.watermark.XpanWatermarkIsolation;
 import local.jiege.hook.x10.X10FilterPort;
+import local.jiege.hook.xpan.XpanCropRegion;
 import local.jiege.hook.xpan.XpanLivePhoto;
 import local.jiege.hook.xpan.XpanViewfinderClean;
 
@@ -120,6 +122,9 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         // 486: the HASSELBLAD group of the master-watermark list is built from a count this realme
         // build answers 0 for, so the heading shows with nothing under it. The artwork is in the APK.
         Install.run("哈苏水印分组", true, "", () -> HasselWatermark.installGallery(classLoader));
+        // 503: the camera watermark page (gallery's PhotoEditorActivity) fills its 哈苏 section only
+        // when ShowHasselXpanStyle answers true, which this build never does.
+        Install.run("相机水印哈苏分区", true, "", () -> HasselCameraPage.installGallery(classLoader));
         Install.run("批量水印", true, "", () -> BatchWatermark.installGallery(classLoader));
         Install.run("GR 相册水印", data, noData, () -> GrPort.installGallery(classLoader));
         Install.run("相册调色板", data, noData, () -> GalleryColorPalette.installGallery(classLoader));
@@ -269,6 +274,8 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
             () -> XpanViewfinderClean.installCamera(classLoader));
         Install.run("XPAN 水印隔离", xpan, "本机 mode_type_list 没有 xpan_mode（配置 profile 未生效）",
             () -> XpanWatermarkIsolation.installCamera(classLoader));
+        Install.run("XPAN 画幅裁剪", xpan, "本机 mode_type_list 没有 xpan_mode（配置 profile 未生效）",
+            () -> XpanCropRegion.installCamera(classLoader));
 
         // --- MediaTek tuning json: natural mode has nothing to write on a Qualcomm device ---
         Install.run("自然色彩", Capabilities.tuningJson() && nativeLibrary,

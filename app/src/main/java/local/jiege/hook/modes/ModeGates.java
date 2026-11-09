@@ -127,8 +127,17 @@ public final class ModeGates {
     private static final String[] STRING_KEYS = {
         "com.oplus.feature.master.mode.version",
         "com.oplus.feature.movie.mode.video.size",
+        // The XPAN sizes as text. 500 confirmed the Size reader
+        // ({@code getSizeConfigValue(String, boolean)}) is answered and the capture still comes out
+        // 3072x4096: on 7.013.51 the session builds its surface from a reader that hands back the
+        // raw string, so the three keys are answered here too. Same values as {@link #SIZE_VALUES}.
+        "com.oplus.xpan.main.picturesize",
+        "com.oplus.xpan.wide.picturesize",
+        "com.oplus.xpan.tele.picturesize",
     };
-    private static final String[] STRING_VALUES = {"2.0", "3840x2160"};
+    private static final String[] STRING_VALUES = {
+        "2.0", "3840x2160", "7872x2912", "7872x2912", "7872x2912",
+    };
 
     /**
      * The three XPAN picture sizes, answered outright.
@@ -375,16 +384,21 @@ public final class ModeGates {
             return;
         }
         Log.i(TAG, "int[] config readers hooked: " + armed + ", " + REGION_KEYS.length
-            + " XPAN crop regions answered");
+            + " XPAN crop regions answered on request");
     }
 
-    /** Every {@code (String, int[]) -> int[]} reader the config class declares. */
+    /** Every {@code (String) / (String, int[]) -> int[]} reader the config class declares. */
     private static List<Method> intArrayReaders(Class<?> config) {
         List<Method> found = new ArrayList<>();
         for (Method method : config.getDeclaredMethods()) {
             Class<?>[] types = method.getParameterTypes();
-            if (types.length == 2 && types[0] == String.class && types[1] == int[].class
-                && method.getReturnType() == int[].class) {
+            if (method.getReturnType() != int[].class) continue;
+            // 500: 7.013.51 dropped {@code l(String, int[])} from the crop path and reads the four
+            // regions through the plain single-argument getter. Both shapes are armed; the key is
+            // what decides whether an answer is given.
+            if (types.length == 2 && types[0] == String.class && types[1] == int[].class) {
+                found.add(method);
+            } else if (types.length == 1 && types[0] == String.class) {
                 found.add(method);
             }
         }
@@ -402,7 +416,8 @@ public final class ModeGates {
         int armed = 0;
         for (Method method : config.getDeclaredMethods()) {
             Class<?>[] types = method.getParameterTypes();
-            if (types.length != 2 || types[0] != String.class || types[1] != boolean.class) continue;
+            if (types.length < 1 || types.length > 2 || types[0] != String.class) continue;
+            if (types.length == 2 && types[1] != boolean.class) continue;
             if (method.getReturnType() != android.util.Size.class) continue;
             try {
                 XposedBridge.hookMethod(method, new XC_MethodHook() {

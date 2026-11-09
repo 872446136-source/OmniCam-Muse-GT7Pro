@@ -68,10 +68,11 @@ public final class ConfigProfile {
      * </ul>
      *
      * <p>{@code oplus_camera_config} is encrypted with a key derived from the device's own
-     * {@code libOplusSecurity.so} and wrapped in a 4-byte envelope whose tail does not survive a
-     * change in payload length, so the switch board is answered in {@code ModeGates} instead of
-     * being shipped as a file. The name is still listed because {@code profile_config.cpp} serves
-     * whatever is staged, and a future build may want it.
+     * {@code libOplusSecurity.so}, so it cannot ship as an asset: a copy packed for one build does
+     * not open on another. The switch board is answered in {@code ModeGates} for the app's own
+     * reader, and the file itself is written by {@link OplusConfig} at run time — decrypted with
+     * this device's key, XPAN's six vendor tags written over it, and wrapped again in the envelope
+     * it came in.
      */
     private static final String[] NAMES = {
         "camera_unit_config",
@@ -171,6 +172,10 @@ public final class ConfigProfile {
                 if (!target.isFile()) complete = false;
             }
             if (!staged) Log.i(TAG, "profile already current for " + Build.MODEL);
+            // The one file that cannot be shipped: it is encrypted with a key taken from this
+            // device, and XPAN's frame is decided from its vendor tags rather than from the app's
+            // own reader. Written last, so a failure here leaves the rest of the profile in place.
+            OplusConfig.stage(dir);
             File marker = new File(dir, "enabled");
             if (!marker.isFile()) marker.createNewFile();
             return complete && marker.isFile();

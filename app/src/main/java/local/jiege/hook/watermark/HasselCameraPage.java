@@ -4,55 +4,86 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import java.io.File;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.List;
 import local.jiege.hook.common.Log;
 
 /**
- * Camera watermark page: the empty 哈苏 (HASSELBLAD) section.
+ * Camera watermark page: the 哈苏 (HASSELBLAD) section, which on this realme build carries only the
+ * XPAN styles and none of the ordinary ones.
  *
- * <p>503 report: 设置 → 水印 → 照片水印 shows the HASSELBLAD wordmark and then nothing under it, so
- * there is no Hasselblad style to pick. That page is not the camera's own UI — it is
- * {@code com.coloros.gallery3d} rendering {@code PhotoEditorActivity} over the camera, and the
- * widget tree (dumped from the device) says exactly which part is empty:
- *
- * <pre>
- *   camera_rm_chip_group           通用 / 理光 GR          (two chips, by design)
- *   camera_hassel_style_layout     only camera_style_item_title_image — the wordmark
- *   camera_frame_style_layout      个性画框 / 灵感取色 / 大师印记 / 经典相机   (three items each)
- * </pre>
- *
- * <p>{@code camera_hassel_style_layout} is filled by
- * {@code WatermarkCameraSection.K0()}, which builds its list through
- * {@code H0(section, type, show, flags)}: the type goes through the {@code yjs} lambda in
- * {@code I0}, which answers the list of style items. Two of the arguments {@code K0} passes come
- * out of {@code T0()}:
+ * <p>That page is not the camera's UI — it is {@code com.coloros.gallery3d} rendering
+ * {@code PhotoEditorActivity} over the camera. {@code WatermarkCameraSection.K0()} fills the two
+ * lists under the HASSELBLAD wordmark:
  *
  * <pre>
- *   T0() = vvm("WatermarkMasterVM/ShowHasselXpanStyle") ?: Pair(FALSE, TRUE)
- *   show = T0().first &amp;&amp; pageIsWide &amp;&amp; screenIsNotSmall
+ *   camera_hassel_style_list       H0(this, R.string.…_master_hasselblad, show, 2)
+ *   camera_hassel_xpan_style_list  H0(this, R.id.…_master_hassel_xpan, false, 6)
  * </pre>
  *
- * <p>So on this realme build the page asks the view model for the flag, gets nothing, and the
- * default is FALSE: {@code H0} is called with {@code show = false}, and the {@code show} flag is
- * one of the arguments the item query receives — the section ends up with the wordmark only.
- * The flag decides the XPAN part of the same section too ({@code camera_hassel_xpan_style_layout}).
+ * <p>{@code show} for the ordinary list is {@code !T0().first && wideScreen}, so the two lists are
+ * mutually exclusive: {@code ShowHasselXpanStyle} true means "show XPAN instead". Both go through
+ * {@code H0}, which turns its type into a query on the {@code WatermarkMasterVM/StyleViewData}
+ * handler — {@code watermarkmaster.b.a([type, flag, show])}.
  *
- * <p>This hook answers {@code T0()} with {@code Pair(TRUE, TRUE)}. Nothing else is touched: the
- * style items still come from the gallery's own lambda and its own assets
- * ({@code assets/watermark_master_styles/hassel_style_*.json}, which the installed APK carries),
- * and if that list is empty anyway the section stays as it is. Every answer is logged with the
- * item count of the adapter {@code H0} built, so one report says whether the flag was the gate or
- * the data behind it is.
+ * <p><b>Why the ordinary list is empty here.</b> That handler starts with a brand check on the
+ * HASSELBLAD type:
+ *
+ * <pre>
+ *   if (type == R.string.picture_editor_text_watermark_master_hasselblad) {
+ *       if (WatermarkMasterVM.n0()) return new ArrayList();   // n0() = z9b.c(6, "is_realme_brand")
+ *       return vm.L(show);
+ *   }
+ * </pre>
+ *
+ * <p>{@code n0()} answers {@code is_realme_brand}, true on this device, so the list is emptied
+ * before anything is read — while the XPAN type has no such branch and comes back with its styles.
+ * That is exactly the 503 report: three XPAN cards under HASSELBLAD and nothing else.
+ *
+ * <p><b>Why {@code n0()} itself is not answered.</b> The same flag decides whether the HASSELBLAD
+ * type button is added at all ({@code WatermarkMasterVM.x}, {@code if (!n0()) skip}), and it is read
+ * from ten places in this package. Answering it false would bring the styles back but drop the
+ * button — the section would vanish rather than fill. So the flag is left alone: when the
+ * HASSELBLAD query comes back empty, {@code vm.L(show)} is called here instead, which is the same
+ * call the handler would have made one line earlier. The list it returns is the one this APK builds
+ * ({@code WatermarkMasterStyle.Companion.getBuiltInHasselStyles} plus the resource arrays), so
+ * nothing is invented and no count is faked. A non-empty answer is passed through untouched.
+ *
+ * <p>503 also answered {@code T0()} with {@code Pair(TRUE, TRUE)}. That was the wrong lever: it
+ * sets {@code show} false for the ordinary list and true for the XPAN one, which is what produced
+ * "only the XPAN styles". It is removed — {@code T0()} keeps whatever the view model says and the
+ * XPAN group keeps its stock behaviour.
+ *
+ * <p><b>Why some cards are black.</b> {@code WatermarkMasterVM.g0(styles, previewRes, type)} builds
+ * one card per style and takes its thumbnail with {@code ArraysKt.getOrNull(previewRes, i)}: an
+ * index past the end of the preview array yields null, the card's preview field keeps its zero, and
+ * nothing is drawn — a black tile. This build's style list is longer than the preview array for the
+ * HASSELBLAD type (the brand branch above decides how many styles there are, the array is fixed in
+ * the APK), so the tail always lands past the end. {@code alignPreviews} drops that tail, leaving
+ * exactly the styles that have a thumbnail — which is what a stock OPPO build shows, because there
+ * the two lengths already agree.
  *
  * <p>Escape hatch: {@code touch /data/adb/omnicam_hasselcam_off}.
  */
 public final class HasselCameraPage {
     private static final String TAG = "HasselCamPage";
     private static final String OFF = "/data/adb/omnicam_hasselcam_off";
+
     private static final String SECTION =
         "com.oplus.gallery.photoeditor.editingvvm.watermarkCamera.WatermarkCameraSection";
 
-    /** One line per process: the page is rebuilt on every tab switch. */
-    private static boolean reportedFlag;
+    /** The {@code StyleViewData} handler: a single method, {@code a(Object[]) -> Object}. */
+    private static final String QUERY = "com.oplus.gallery.photoeditor.editingvvm.watermarkmaster.b";
+    private static final String VM =
+        "com.oplus.gallery.photoeditor.editingvvm.watermarkmaster.WatermarkMasterVM";
+    private static final String R_STRING = "com.oplus.gallery.photoeditor.R$string";
+    private static final String HASSEL_TYPE = "picture_editor_text_watermark_master_hasselblad";
+
+    /** One line per process for each outcome; the page is rebuilt on every tab switch. */
+    private static boolean reportedFill;
+    private static boolean reportedMissing;
+    private static boolean reportedTrim;
     private static int adapters;
 
     private HasselCameraPage() {}
@@ -62,37 +93,117 @@ public final class HasselCameraPage {
             Log.i(TAG, "off (" + OFF + ")");
             return;
         }
-        Log.guard(TAG, "哈苏分区开关", () -> hookFlag(classLoader));
-        Log.guard(TAG, "哈苏分区列表", () -> watchLists(classLoader));
+        Log.guard(TAG, "哈苏样式查询", () -> hookQuery(classLoader));
+        Log.guard(TAG, "哈苏分区样式表", () -> watchLists(classLoader));
+        Log.guard(TAG, "哈苏预览对齐", () -> alignPreviews(classLoader));
     }
 
     /**
-     * {@code T0()} is the page's own reader of {@code ShowHasselXpanStyle}; the class is not
-     * obfuscated, so it is reached by name.
+     * Drops the cards that have no thumbnail. {@code g0} builds one card per style but takes the
+     * thumbnail with {@code getOrNull(previewRes, i)}, so every style past the end of the preview
+     * array is built with a zero preview and renders as a black tile. The style list is longer than
+     * that array on this brand, so the tail is always black.
      */
-    private static void hookFlag(final ClassLoader classLoader) throws Throwable {
-        Class<?> section = XposedHelpers.findClass(SECTION, classLoader);
-        XposedHelpers.findAndHookMethod(section, "T0", new XC_MethodHook() {
-            @Override protected void afterHookedMethod(MethodHookParam param) {
-                Object before = param.getResult();
-                Object show = first(before);
-                if (Boolean.TRUE.equals(show)) return;
-                try {
-                    Object pair = XposedHelpers.newInstance(
-                        XposedHelpers.findClass("kotlin.Pair", classLoader),
-                        Boolean.TRUE, Boolean.TRUE);
-                    param.setResult(pair);
-                } catch (Throwable error) {
-                    Log.e(TAG, "哈苏分区开关回答失败", error);
-                    return;
+    private static void alignPreviews(ClassLoader classLoader) throws Throwable {
+        Class<?> vm = XposedHelpers.findClass(VM, classLoader);
+        XposedHelpers.findAndHookMethod(vm, "g0", java.util.ArrayList.class, int[].class, int.class,
+            new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    Object built = param.getResult();
+                    int[] previews = param.args.length > 1 && param.args[1] instanceof int[]
+                        ? (int[]) param.args[1] : null;
+                    if (!(built instanceof List) || previews == null || previews.length == 0) return;
+                    List<?> items = (List<?>) built;
+                    if (items.size() <= previews.length) return;
+                    param.setResult(new java.util.ArrayList<Object>(items.subList(0, previews.length)));
+                    if (!reportedTrim) {
+                        reportedTrim = true;
+                        Log.i(TAG, "样式 " + items.size() + " 项、预览 " + previews.length
+                            + " 张，截掉没有缩略图的 " + (items.size() - previews.length) + " 项");
+                    }
                 }
-                if (!reportedFlag) {
-                    reportedFlag = true;
-                    Log.i(TAG, "ShowHasselXpanStyle 原为 " + before + "，已回答 true");
+            });
+        Log.i(TAG, "哈苏预览对齐已挂上");
+    }
+
+    /**
+     * Fills the ordinary HASSELBLAD list: the handler answers an empty list for this brand, so when
+     * that happens the same list is read through the view model's own {@code (boolean) -> List}.
+     */
+    private static void hookQuery(final ClassLoader classLoader) throws Throwable {
+        final Class<?> query = XposedHelpers.findClass(QUERY, classLoader);
+        final Class<?> vm = XposedHelpers.findClass(VM, classLoader);
+        final Method read = onlyShowList(vm);
+        if (read == null) {
+            if (!reportedMissing) {
+                reportedMissing = true;
+                Log.i(TAG, "找不到唯一的 (boolean)->List 样式入口，普通哈苏保持原厂");
+            }
+            return;
+        }
+        read.setAccessible(true);
+        final int type;
+        try {
+            type = XposedHelpers.getStaticIntField(
+                XposedHelpers.findClass(R_STRING, classLoader), HASSEL_TYPE);
+        } catch (Throwable absent) {
+            Log.i(TAG, "资源 id " + HASSEL_TYPE + " 不在这一版里，普通哈苏保持原厂");
+            return;
+        }
+        XposedBridge.hookAllMethods(query, "a", new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                Object[] args = param.args.length == 1 && param.args[0] instanceof Object[]
+                    ? (Object[]) param.args[0] : null;
+                if (args == null || args.length < 3) return;
+                if (!(args[0] instanceof Integer) || ((Integer) args[0]) != type) return;
+                Object result = param.getResult();
+                if (!(result instanceof List) || !((List<?>) result).isEmpty()) return;
+                try {
+                    Object owner = viewModel(param.thisObject, vm);
+                    if (owner == null) return;
+                    boolean show = Boolean.TRUE.equals(args[2]);
+                    Object filled = read.invoke(owner, show);
+                    if (!(filled instanceof List) || ((List<?>) filled).isEmpty()) return;
+                    param.setResult(filled);
+                    if (!reportedFill) {
+                        reportedFill = true;
+                        Log.i(TAG, "普通哈苏样式 " + ((List<?>) filled).size()
+                            + " 项，替换掉品牌门禁给的空列表");
+                    }
+                } catch (Throwable error) {
+                    Log.e(TAG, "普通哈苏样式重算失败", error);
                 }
             }
         });
-        Log.i(TAG, "哈苏分区开关已接管 " + SECTION + ".T0");
+        Log.i(TAG, "哈苏样式查询已接管 " + QUERY + ".a（列表入口 " + read.getName() + "）");
+    }
+
+    /** The one {@code (boolean) -> List} reader the view model declares; null unless it is unique. */
+    private static Method onlyShowList(Class<?> vm) {
+        Method found = null;
+        for (Method method : vm.getDeclaredMethods()) {
+            Class<?>[] types = method.getParameterTypes();
+            if (method.getReturnType() != List.class) continue;
+            if (types.length != 1 || types[0] != boolean.class) continue;
+            if (found != null) return null;
+            found = method;
+        }
+        return found;
+    }
+
+    /** The view model the handler was built with: the class has one field and it is this one. */
+    private static Object viewModel(Object handler, Class<?> vm) {
+        if (handler == null) return null;
+        for (Field field : handler.getClass().getDeclaredFields()) {
+            if (!vm.isAssignableFrom(field.getType())) continue;
+            try {
+                field.setAccessible(true);
+                return field.get(handler);
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     /** Read-only: how many items the 哈苏 adapters actually get, so the next report says where to look. */
@@ -115,15 +226,5 @@ public final class HasselCameraPage {
                 }
             });
         Log.i(TAG, "哈苏分区样式表已挂监听");
-    }
-
-    /** {@code Pair.getFirst()} without linking against kotlin at compile time. */
-    private static Object first(Object item) {
-        if (item == null) return null;
-        try {
-            return XposedHelpers.callMethod(item, "getFirst");
-        } catch (Throwable ignored) {
-            return null;
-        }
     }
 }

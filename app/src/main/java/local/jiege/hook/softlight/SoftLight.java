@@ -43,10 +43,22 @@ public final class SoftLight {
                     nativeSetNoLocalContrast(Settings.get(ModuleSettings.SOFT_LIGHT_NO_LOCAL_CONTRAST));
                 }
             }));
+        // Resolved once and never thrown from the hook: this runs on every filter apply, and an
+        // exception there leaves the filter unapplied instead of merely reporting the wrong mode.
+        final java.lang.reflect.Field modeName = symbols.has("FeaturePresenter.modeName")
+            ? symbols.field("FeaturePresenter.modeName") : null;
         for (String stage : new String[] {"FilterPresenter.apply", "FilterPresenter.captureRequest"}) {
             Log.guard(TAG, "soft light mode at " + stage, () -> XposedBridge.hookMethod(symbols.method(stage), new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                    nativeSetMasterMode(FilterScope.MASTER_MODE.equals(symbols.get("FeaturePresenter.modeName", param.thisObject)));
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    boolean master = false;
+                    if (modeName != null) {
+                        try {
+                            master = FilterScope.MASTER_MODE.equals(modeName.get(param.thisObject));
+                        } catch (Throwable error) {
+                            // not the master mode: leave the stock soft light alone
+                        }
+                    }
+                    nativeSetMasterMode(master);
                 }
             }));
         }

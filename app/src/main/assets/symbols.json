@@ -2188,7 +2188,7 @@
     "FeaturePresenter.getCameraMode": {
       "kind": "method",
       "in": "@FeaturePresenter",
-      "name": "q",
+      "name": "y",
       "params": [],
       "ret": "java.lang.String"
     },

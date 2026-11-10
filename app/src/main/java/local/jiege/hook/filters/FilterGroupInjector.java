@@ -97,21 +97,38 @@ public final class FilterGroupInjector {
     private static void hookStrip() {
         try {
             final Symbols symbols = Symbols.get();
+            // Resolved once: this hook runs in the preview callback of every frame, and a symbol
+            // that throws in there aborts the frame before the filter is applied, which leaves
+            // every filter and every adjustment doing nothing at all.
+            final java.lang.reflect.Field modeName = symbols.has("FeaturePresenter.modeName")
+                ? symbols.field("FeaturePresenter.modeName") : null;
             XposedBridge.hookMethod(symbols.method("FilterPresenter.typesFor"), new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                    List<String> hidden = masterHidden;
-                    if (hidden.isEmpty() || !(param.getResult() instanceof List)) return;
-                    if (FilterScope.ofMode(symbols.get("FeaturePresenter.modeName", param.thisObject)) != FilterScope.MASTER) return;
-                    @SuppressWarnings("unchecked") List<String> types = (List<String>) param.getResult();
-                    int visible = types.size() - hidden.size();
-                    if (visible < 1 || !types.subList(visible, types.size()).equals(hidden)) return;
-                    param.setResult(new java.util.ArrayList<>(types.subList(0, visible)));
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    try {
+                        List<String> hidden = masterHidden;
+                        if (hidden.isEmpty() || !(param.getResult() instanceof List)) return;
+                        if (modeName != null
+                            && FilterScope.ofMode(modeName.get(param.thisObject)) != FilterScope.MASTER) return;
+                        @SuppressWarnings("unchecked") List<String> types = (List<String>) param.getResult();
+                        int visible = types.size() - hidden.size();
+                        if (visible < 1 || !types.subList(visible, types.size()).equals(hidden)) return;
+                        param.setResult(new java.util.ArrayList<>(types.subList(0, visible)));
+                    } catch (Throwable error) {
+                        once("filter strip", error);
+                    }
                 }
             });
         } catch (Throwable error) {
             Log.e(TAG, "filter strip hook failed", error);
         }
     }
+
+    /** Logs the first failure of a key only: a per-frame hook would otherwise flood the log. */
+    private static void once(String key, Throwable error) {
+        if (reported.add(key)) Log.e(TAG, key + " hook failed, left as it is", error);
+    }
+
+    private static final java.util.Set<String> reported = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /**
      * PresetDataUtil.matchPresetFilterOnDevice(preset, resources, types, nameIds) decides whether a

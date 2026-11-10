@@ -70,8 +70,9 @@ public final class Symbols {
         current = symbols;
         long start = System.currentTimeMillis();
         String how = "error";
+        JSONObject spec = null;
         try {
-            JSONObject spec = new JSONObject(readSpec()).getJSONObject(section);
+            spec = new JSONObject(readSpec()).getJSONObject(section);
             File apk = new File(apkPath);
             String key = CACHE_VERSION + "|" + sha1(spec.toString()) + "|" + apk.getAbsolutePath() + "|" + apk.length() + "|" + apk.lastModified();
             File cache = new File(dataDir, "cache/jiege_symbols_" + section + ".json");
@@ -88,12 +89,20 @@ public final class Symbols {
         } catch (Throwable error) {
             Log.e(TAG, "symbol resolution failed", error);
         }
-        Log.i(TAG, section + ": " + symbols.resolved.size() + " resolved, " + symbols.failures.size() + " missing ("
-            + how + ", " + (System.currentTimeMillis() - start) + " ms)");
+        // "optional" marks a member a stock build of another phone has and this one never got. A
+        // failure there is not an injection error: the feature behind it is absent by design.
+        List<String> absent = new ArrayList<>();
+        List<String> optional = new ArrayList<>();
         for (Map.Entry<String, String> failure : symbols.failures.entrySet()) {
-            Log.i(TAG, "  missing " + failure.getKey() + ": " + failure.getValue());
+            JSONObject symbol = spec == null ? null : spec.optJSONObject(failure.getKey());
+            if (symbol != null && symbol.optBoolean("optional")) optional.add(failure.getKey() + ": " + failure.getValue());
+            else absent.add(failure.getKey() + ": " + failure.getValue());
         }
-        Diagnostics.begin(section, loader, apkPath, symbols.resolved.size(), symbols.failures.size());
+        Log.i(TAG, section + ": " + symbols.resolved.size() + " resolved, " + absent.size() + " missing ("
+            + how + ", " + (System.currentTimeMillis() - start) + " ms)");
+        for (String failure : absent) Log.i(TAG, "  missing " + failure);
+        for (String failure : optional) Log.i(TAG, "  not on this build " + failure);
+        Diagnostics.begin(section, loader, apkPath, symbols.resolved.size(), absent.size());
         return symbols;
     }
 

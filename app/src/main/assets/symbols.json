@@ -479,6 +479,7 @@
       ]
     },
     "Mode.effectEntry": {
+        "optional": true,
       "kind": "method",
       "in": "@BaseMode",
       "name": "Li",
@@ -1369,6 +1370,7 @@
       "static": true
     },
     "SoundPlayer.silence": {
+        "optional": true,
       "kind": "method",
       "in": "@SoundPlayer",
       "params": [
@@ -1383,6 +1385,7 @@
       ]
     },
     "SoundPlayer.unsilence": {
+        "optional": true,
       "kind": "method",
       "in": "@SoundPlayer",
       "params": [
@@ -1724,12 +1727,14 @@
       "type": "android.graphics.RectF"
     },
     "Shutter.t4": {
+        "optional": true,
       "kind": "field",
       "in": "com.oplus.camera.control.MainShutterButton",
       "name": "u4",
       "type": "android.graphics.SweepGradient"
     },
     "Shutter.H4": {
+        "optional": true,
       "kind": "field",
       "in": "com.oplus.camera.control.MainShutterButton",
       "name": "I4",
@@ -2193,6 +2198,7 @@
       "ret": "java.lang.String"
     },
     "SoundPlayer.ready": {
+        "optional": true,
       "kind": "method",
       "in": "@SoundPlayer",
       "params": [],
@@ -2349,6 +2355,7 @@
       "ret": "void"
     },
     "RetroMode.previewDecision": {
+        "optional": true,
       "kind": "method",
       "in": "@RetroMode",
       "params": [
@@ -2744,6 +2751,7 @@
       "ret": "boolean"
     },
     "FilterPresenter.styleMode": {
+        "optional": true,
       "kind": "method",
       "in": "@FilterPresenter",
       "name": "O3",
@@ -2751,6 +2759,7 @@
       "ret": "boolean"
     },
     "FilterPresenter.styleTarget": {
+        "optional": true,
       "kind": "field",
       "in": "@FilterPresenter",
       "name": "t1",
@@ -2763,6 +2772,7 @@
       "type": "boolean"
     },
     "FilterPresenter.clampStyle": {
+        "optional": true,
       "kind": "method",
       "in": "@FilterPresenter",
       "params": [
@@ -2775,6 +2785,7 @@
       ]
     },
     "FilterPresenter.storeStyle": {
+        "optional": true,
       "kind": "method",
       "in": "@FilterPresenter",
       "name": "p4",
@@ -2819,6 +2830,7 @@
       ]
     },
     "FilterPresenter.syncPalette": {
+        "optional": true,
       "kind": "method",
       "in": "@FilterPresenter",
       "params": [],

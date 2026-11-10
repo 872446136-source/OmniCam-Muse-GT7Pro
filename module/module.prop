@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse 4.32 GT7Pro
-versionCode=504
+version=Muse 4.33 GT7Pro
+versionCode=505
 author=local-port
-description=单版本，无 Lite。504：修 POP/GR 下滤镜与调节全部无作用（每帧预览回调里读一个已失配的符号就抛异常，整条滤镜链被打断）；哈苏分区截掉没有缩略图的尾部样式，不再出黑块。XPAN 画幅仍在打通，成片暂为 3636x8000。
+description=拍照、视频、人像 Lite。505：哈苏水印页按宽屏用例读样式表（此前读的是 XPAN 用例，整行只有一张超大卡），XPAN 那半行在有普通样式时收起；诊断不再把 12 个本机没有的入口算成注入异常；理光 tuning 补上冷-暖/青-品红通道，色温与色调滑杆有通道可走。

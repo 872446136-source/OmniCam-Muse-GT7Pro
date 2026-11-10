@@ -78,12 +78,21 @@ public final class HasselCameraPage {
     private static final String VM =
         "com.oplus.gallery.photoeditor.editingvvm.watermarkmaster.WatermarkMasterVM";
     private static final String R_STRING = "com.oplus.gallery.photoeditor.R$string";
+    private static final String R_ID = "com.oplus.gallery.photoeditor.R$id";
     private static final String HASSEL_TYPE = "picture_editor_text_watermark_master_hasselblad";
+    private static final String XPAN_TYPE = "picture_editor_text_watermark_master_hassel_xpan";
+
+    /** Set once the ordinary 哈苏 list has content; the XPAN half steps aside from then on. */
+    private static volatile boolean ordinaryFilled;
+
+    /** Keep the XPAN cards even when the ordinary list is filled (stock layout with both halves). */
+    private static final File KEEP_XPAN = new File("/data/adb/omnicam_hassel_xpan_keep");
 
     /** One line per process for each outcome; the page is rebuilt on every tab switch. */
     private static boolean reportedFill;
     private static boolean reportedMissing;
     private static boolean reportedTrim;
+    private static boolean reportedXpan;
     private static int adapters;
 
     private HasselCameraPage() {}
@@ -143,39 +152,94 @@ public final class HasselCameraPage {
         }
         read.setAccessible(true);
         final int type;
+        final int xpan;
         try {
-            type = XposedHelpers.getStaticIntField(
-                XposedHelpers.findClass(R_STRING, classLoader), HASSEL_TYPE);
+            Class<?> strings = XposedHelpers.findClass(R_STRING, classLoader);
+            type = XposedHelpers.getStaticIntField(strings, HASSEL_TYPE);
         } catch (Throwable absent) {
             Log.i(TAG, "资源 id " + HASSEL_TYPE + " 不在这一版里，普通哈苏保持原厂");
             return;
         }
+        xpan = xpanType(classLoader);
         XposedBridge.hookAllMethods(query, "a", new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
                 Object[] args = param.args.length == 1 && param.args[0] instanceof Object[]
                     ? (Object[]) param.args[0] : null;
                 if (args == null || args.length < 3) return;
-                if (!(args[0] instanceof Integer) || ((Integer) args[0]) != type) return;
+                if (!(args[0] instanceof Integer)) return;
+                int asked = (Integer) args[0];
                 Object result = param.getResult();
-                if (!(result instanceof List) || !((List<?>) result).isEmpty()) return;
-                try {
-                    Object owner = viewModel(param.thisObject, vm);
-                    if (owner == null) return;
-                    boolean show = Boolean.TRUE.equals(args[2]);
-                    Object filled = read.invoke(owner, show);
-                    if (!(filled instanceof List) || ((List<?>) filled).isEmpty()) return;
-                    param.setResult(filled);
-                    if (!reportedFill) {
-                        reportedFill = true;
-                        Log.i(TAG, "普通哈苏样式 " + ((List<?>) filled).size()
-                            + " 项，替换掉品牌门禁给的空列表");
+                if (!(result instanceof List)) return;
+                if (asked == type) {
+                    if (!((List<?>) result).isEmpty()) {
+                        // Stock on a phone that has the styles: nothing to add, but the fact matters
+                        // to the XPAN branch below, which only steps aside when this list is real.
+                        ordinaryFilled = true;
+                        return;
                     }
-                } catch (Throwable error) {
-                    Log.e(TAG, "普通哈苏样式重算失败", error);
+                    try {
+                        Object owner = viewModel(param.thisObject, vm);
+                        if (owner == null) return;
+                        // Read as the wide-screen, non-XPAN case even when this phone answers
+                        // "XPAN" for the pair: that flag is what the ordinary list is built for,
+                        // and asking for the XPAN case returns the wide cards that render as one
+                        // oversized tile. The list is dropped to the thumbnails below either way.
+                        Object filled = read.invoke(owner, true);
+                        if (!(filled instanceof List) || ((List<?>) filled).isEmpty()) return;
+                        param.setResult(filled);
+                        ordinaryFilled = true;
+                        if (!reportedFill) {
+                            reportedFill = true;
+                            Log.i(TAG, "普通哈苏样式 " + ((List<?>) filled).size()
+                                + " 项（按 show=true 读），替换掉品牌门禁给的空列表");
+                        }
+                    } catch (Throwable error) {
+                        Log.e(TAG, "普通哈苏样式重算失败", error);
+                    }
+                    return;
+                }
+                // The XPAN list and the ordinary one are two halves of one row — stock builds only
+                // ever fill one, because ShowHasselXpanStyle decides which. This brand answers
+                // "XPAN" for a phone that has no ordinary styles, so with the ordinary list filled
+                // both come back and the row mixes a full-width XPAN card in with the normal ones,
+                // which reads on screen as one card that is far too large. Once the ordinary list
+                // is there, the XPAN half is emptied.
+                if (xpan != 0 && asked == xpan && ordinaryFilled && !KEEP_XPAN.exists()
+                    && !((List<?>) result).isEmpty()) {
+                    int dropped = ((List<?>) result).size();
+                    param.setResult(new java.util.ArrayList<Object>());
+                    if (!reportedXpan) {
+                        reportedXpan = true;
+                        Log.i(TAG, "普通哈苏已填充，XPAN 那 " + dropped
+                            + " 张收起来（放 " + KEEP_XPAN + " 可保留）");
+                    }
                 }
             }
         });
-        Log.i(TAG, "哈苏样式查询已接管 " + QUERY + ".a（列表入口 " + read.getName() + "）");
+        Log.i(TAG, "哈苏样式查询已接管 " + QUERY + ".a（列表入口 " + read.getName()
+            + "，XPAN type " + (xpan == 0 ? "未找到" : String.valueOf(xpan)) + "）");
+    }
+
+    /**
+     * The XPAN half of the 哈苏 row. {@code WatermarkCameraSection.K0} passes
+     * {@code R.id.…master_hassel_xpan} where the ordinary list gets an {@code R.string}; the id is
+     * looked up over every {@code R$id} field and accepted only when exactly one exists.
+     */
+    private static int xpanType(ClassLoader classLoader) {
+        try {
+            Class<?> ids = XposedHelpers.findClass(R_ID, classLoader);
+            java.lang.reflect.Field[] found = ids.getDeclaredFields();
+            int value = 0;
+            int count = 0;
+            for (java.lang.reflect.Field field : found) {
+                if (!field.getName().equals(XPAN_TYPE)) continue;
+                count++;
+                value = field.getInt(null);
+            }
+            return count == 1 ? value : 0;
+        } catch (Throwable absent) {
+            return 0;
+        }
     }
 
     /** The one {@code (boolean) -> List} reader the view model declares; null unless it is unique. */

@@ -38,6 +38,14 @@ public final class SymbolSearch {
 
     public final Map<String, List<String>> resolved = new LinkedHashMap<>();
     public final Map<String, String> failures = new LinkedHashMap<>();
+    /**
+     * Failures of symbols the spec marks {@code "optional": true}: members this app build does not
+     * have at all (an entry button of a mode the phone never got, a shutter-sound hook the newer
+     * camera merged into another method). They stay in {@link #failures} so that dependencies are
+     * settled, but they are not injection errors — the feature they belong to is not on this build
+     * to begin with, and reporting them as "符号未匹配" sends the next report after the wrong thing.
+     */
+    public final Map<String, String> optionalFailures = new LinkedHashMap<>();
     private final DexKitBridge bridge;
 
     private SymbolSearch(DexKitBridge bridge) {
@@ -59,21 +67,26 @@ public final class SymbolSearch {
                 progress = true;
                 List<String> missing = search.missingDependencies(symbol);
                 if (!missing.isEmpty()) {
-                    search.failures.put(id, "needs " + missing);
+                    search.fail(id, symbol, "needs " + missing);
                     continue;
                 }
                 try {
                     List<String> hits = search.find(symbol);
                     boolean multi = symbol.optBoolean("multi");
                     if (hits.size() == 1 || (multi && !hits.isEmpty())) search.resolved.put(id, hits);
-                    else search.failures.put(id, hits.size() + " matches " + (hits.size() > 4 ? hits.subList(0, 4) : hits));
+                    else search.fail(id, symbol, hits.size() + " matches " + (hits.size() > 4 ? hits.subList(0, 4) : hits));
                 } catch (Throwable error) {
-                    search.failures.put(id, String.valueOf(error));
+                    search.fail(id, symbol, String.valueOf(error));
                 }
             }
         }
-        for (String id : pending) search.failures.put(id, "circular reference");
+        for (String id : pending) search.fail(id, spec.optJSONObject(id), "circular reference");
         return search;
+    }
+
+    private void fail(String id, JSONObject symbol, String why) {
+        failures.put(id, why);
+        if (symbol != null && symbol.optBoolean("optional")) optionalFailures.put(id, why);
     }
 
     // --- dependencies -------------------------------------------------------------------------

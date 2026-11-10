@@ -138,13 +138,51 @@ $env:OMNICAM_PYTHON = 'python'
 
 ## 已知问题
 
-- **POP 快门偶发不出片**。496 定位到相机单元 SDK 里的 `ModeInterface.isAllowedToTakePicture` 返回 1，起因是 SDK 手里的预览帧数还是模式打开时的旧值。496 加了 `PopSdkGate`，在按压窗口内把 app 已接受的帧数写回 SDK，并把判定原因打进日志，等实机日志确认。498 让这个帧数改成可读地取（`mMultiFrameCount` → `f` → `getMultiFrameCount()`），读不到时日志会说明，不再静默按 1 处理。
-- **哈苏水印相机侧 NPE**。`BaseWatermarkManager.getWatermarkJson-aiMaster` 读 `/photo_watermark/<style>`，这台机器的 ODM 里整个目录不存在，返回 null 之后 `isSystemRegionOverScope(null)` 抛 NPE。498 只在输入为 null 时回答 false，方法体不再执行，null 也不被解引用；缺的样式资源本身仍需要一台有哈苏样式的机器上的文件才能补。
-- **相机 7.013.51 有 14 个符号落空**，相机从 7.013.40 升级后 R8 重排，写死名字的那批全部匹配不到。
-  这些是逐个接住的，只有对应功能降级：快门声、POP 快门按钮的渐变重绘、物理柔光的成片那一半、
-  哈苏超清的入口按钮、快速滤镜面板。拍照、GR、POP、XPAN、大师色彩、柔光取景、成片转储都正常。
-  补它需要 7.013.51 的相机 APK 重新对一遍名字，见 `docs/RELEASE-499.md`。
-- **正片胶片**是否恢复正常，还等一次实机确认。
+按 505 的状态分三类：**还没解决的**、**改完但没上真机确认的**、**本机确实没有、只做降级的**。设置应用「注入状态」页会逐项给出结果，每一项的来龙去脉在对应的 `docs/RELEASE-*.md`。
+
+### 还没解决的
+
+**POP / GR 的五个调节滑杆全部无效（光感、去锐化、色温、色调、自然饱和度）**
+
+拖到哪一档画面都一样。日志已经排除了渲染器：`IPU_FilterProcessUnitSDK.processImage` 一共 671 次调用，参数里的 `image_adjust_intensity` **全是 0**，`filter_800t_custom_params` 只带 `lux_index`。也就是说滑杆的值根本没有下发到滤镜链，问题在写入侧而不是渲染侧。
+
+- 光感、去锐化、自然饱和度：下一步要在这条 `processImage` 调用上挂参数打印，抓一次拖滑杆的日志，才能分清是界面没把值写进参数表，还是写进去之后被 SDK 丢了。
+- 色温、色调：这两个走 BasicTone 的 CMCW 通道（`[CMCWLut]` 里的 `CoWa` 冷-暖、`CyMa` 青-品红）。本机 `basictone/setting_Retro/SimTool.ini` 里**没有这一段**，`[switch]` 里也没有 `CWCM`，所以这两个值无路可走。**目前没有改**：grid size 与 switch 块必须和 `libBasicTonePhoto.so` 对齐，表找不到时按全 0 处理，而在这条链上全 0 等于黑预览加绿屏。声明 `CMCWLutNum = 9` 之后库会不会自己生成表，没有真机日志无法确认，猜错的代价是理光整个不能用。
+
+**XPAN 画幅停在 2.2:1，还不到 65:24**
+
+取景框是 65:24，成片不是。日志里的决定性几行：`appSurfaceSize: 8000x3636`、`halSurfaceSize: 4096x3072`、`mXpanCropSize: 1368x3696`、`mXpanCropCoordinate: null`。crop region `{64, 360, 7872, 2912}` 的坐标系是 8000×3636 的画布（64+7872+64 = 8000，360+2912+364 = 3636），HAL 只交 4096×3072，坐标全部越界，所以裁不出来。
+
+试过的两条路：
+
+- 改 `CameraHWConfiguration.config` 里的 `8000X3636X4096X3072`，被 HAL 忽略，表面尺寸没变。
+- 改成 `8000X3636X8000X3636` 生效了（`get customSurfaceSize: [Pair{8000x3636 8000x3636}]`），成片从 3072×4096 变成 3636×8000，比例 0.427，接近 XPAN 竖画布 0.4545，但仍然不是 65:24。
+
+真正要让 HAL 按 8000×3636 交付，得手工 bind mount 加正确的 SELinux 标签再 `ctl.restart vendor.camera-provider`，模块目前还没接管这一步。`XpanCropRegion`（答 `getXpanLandScapeCropRegion` / `getXpanPortraitCropRegion`）已经编译进去，**没有在真机上验证过**。
+
+**哈苏水印的相机侧缺资源**
+
+`BaseWatermarkManager.getWatermarkJson-aiMaster` 读 `/photo_watermark/<style>`，这台机器的 ODM 里整个目录不存在，返回 null 之后 `isSystemRegionOverScope(null)` 抛 NPE。498 之后不再崩（输入为 null 时直接回答 false，方法体不执行），但缺的样式文件本身补不上，要一台有哈苏样式的机器上的资源。
+
+**POP 快门偶发不出片**
+
+496 定位到相机单元 SDK 的 `ModeInterface.isAllowedToTakePicture` 返回 1，起因是 SDK 手里的预览帧数还是模式打开时的旧值。`PopSdkGate` 在按压窗口内把 app 已接受的帧数写回 SDK；498 让这个帧数改成可读地取（`mMultiFrameCount` → `f` → `getMultiFrameCount()`），读不到时日志会说明。到 505 为止没有新的复现日志，但也没能稳定复现并确认修好。
+
+### 改完还没上真机确认的
+
+| 问题 | 版本 | 做法 |
+|---|---|---|
+| 哈苏分区只剩 XPAN 三张 | 503 | `watermarkmaster.b.a` 处理哈苏 type 时先过品牌门禁 `is_realme_brand`，本机为 true 直接返回空列表。改成在门禁返回空时，用 ViewModel 里那个 `(Z)List` 方法（7.013 里叫 `L`）重算一遍填进去 |
+| 两张水印卡全黑 | 504 | `WatermarkMasterVM.g0` 用 `getOrNull(previewRes, i)` 取预览图，样式 8 条而预览图只有 6 张，越界返回 null 就画成纯黑。改成按预览图数量截断结果 |
+| 哈苏那行里有一张卡特别大 | 505 | 哈苏是两个独立列表（普通 / XPAN），读样式表时传的 `show` 是 false，拿到的正是 XPAN 用例的宽幅表，于是一条卡占满整行。改成固定按 `show = true` 读，普通列表有内容后 XPAN 那半让位（放 `/data/adb/omnicam_hassel_xpan_keep` 可保留两边） |
+| POP 下滤镜与调节全部无作用 | 504 | `FeaturePresenter.getCameraMode` 的符号名字写错了（`q` → `y`），每帧预览回调里读它都抛 `MissingSymbol`（一次会话 412 次），把 `yf.s.z3()` 打断。符号表修正，两处 hook 改成安装时解析一次、钩子内兜底 |
+| 正片胶片 | — | 是否恢复正常还等一次实机确认 |
+
+### 本机确实没有的入口（降级，不算故障）
+
+相机从 7.013.40 升到 7.013.51 之后 R8 重排，有 12 个入口在这份 APK 里**确实不存在**：哈苏超清入口（本机决策树没有 25M / 200M 节点）、快门静音的 3 个定位方法（7.013 已合并成一个 `r(J)V`）、`Shutter.t4` / `Shutter.H4`、`RetroMode.previewDecision`（参数类型 `eb.e` 改名）、`FilterPresenter` 的 5 个长按面板翻页方法。
+
+505 起这些在 `symbols.json` 里标了 `"optional": true`：解析失败仍然记录，日志单独打 `not on this build`，不再计入注入状态的缺失数。对应功能降级：快门声、POP 快门按钮的渐变重绘、物理柔光的成片那一半、哈苏超清的入口按钮、快速滤镜面板。拍照、GR、POP、XPAN、大师色彩、柔光取景、成片转储不受影响。
 
 ## 目录
 

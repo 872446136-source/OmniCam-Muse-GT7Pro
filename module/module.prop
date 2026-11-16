@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse GT7Pro 513-test
+version=Muse GT7Pro 513
 versionCode=513
 author=local-port
-description=GT7 Pro 测试版 513：保留 512 基线；修复 XPAN 开／关水印的成片裁切与布局；恢复普通哈苏卡片；分别保存普通与 XPAN 水印状态。POP 色调仍待修复。
+description=GT7 Pro 正式版 513：保留 512 基线；修复 XPAN 开／关水印的成片裁切与布局；恢复普通哈苏卡片；分别保存普通与 XPAN 水印状态。POP 色调仍待修复。

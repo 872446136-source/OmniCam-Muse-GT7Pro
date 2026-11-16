@@ -169,7 +169,6 @@ public final class ModuleSettings {
             case DUMP_CCM:
             case DUMP_HDRT:
             case NORMAL_FOLLOWS_MASTER:
-            case XPAN_WATERMARK_ISOLATION:
             case MODEL_SPOOF_WATERMARK:
             case MODEL_SPOOF_EXIF:
             case KEY_LAUNCH_MODE_ON:
@@ -185,6 +184,7 @@ public final class ModuleSettings {
             case HIGH_PIXEL_200M_NO_FACE:
                 return false;
             case POP_HIGH_PIXEL:
+            case XPAN_WATERMARK_ISOLATION:
             case UNLOCK_25MP:
             case HIGH_PIXEL_EFFECTS:
             case SHUTTER_IN_SILENT:

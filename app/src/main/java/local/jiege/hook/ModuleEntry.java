@@ -44,6 +44,7 @@ import local.jiege.hook.tilt.TiltShiftCapture;
 import local.jiege.hook.unlock25mp.Unlock25mp;
 import local.jiege.hook.video.VideoFilterHighSpec;
 import local.jiege.hook.watermark.HasselCameraPage;
+import local.jiege.hook.watermark.HasselResources;
 import local.jiege.hook.watermark.HasselWatermark;
 import local.jiege.hook.watermark.ModelSpoof;
 import local.jiege.hook.watermark.VideoWatermarkGuard;
@@ -206,6 +207,7 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         Install.run("4K60 滤镜", true, "", () -> VideoFilterHighSpec.installCamera(classLoader));
         Install.run("机型伪装", true, "", () -> ModelSpoof.installCamera(classLoader));
         Install.run("视频水印保护", true, "", () -> VideoWatermarkGuard.installCamera(classLoader));
+        Install.run("哈苏相机水印资源", true, "", () -> HasselResources.installCamera(classLoader));
         // 493: 本机 ODM 没有 photo_watermark 目录，水印样式 json 读出来是 null，
         // MasterWatermarkCreator.isSystemRegionOverScope 第一行就把它解引用。只在输入为 null 时
         // 介入，有 json 的路径不动。

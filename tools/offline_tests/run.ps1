@@ -1,13 +1,15 @@
 $ErrorActionPreference = 'Stop'
 # Offline tests for the filter catalogs, group injection and preset selection (plain JVM).
 $project = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$sdk = (Get-Content (Join-Path $project 'local.properties') | Where-Object { $_ -like 'sdk.dir=*' }) -replace '^sdk.dir=', ''
+$sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else {
+    (Get-Content (Join-Path $project 'local.properties') | Where-Object { $_ -like 'sdk.dir=*' }) -replace '^sdk.dir=', ''
+}
 $android = Get-ChildItem (Join-Path $sdk 'platforms') -Directory | Sort-Object { [int]($_.Name -replace '\D', '') } -Descending |
     ForEach-Object { Join-Path $_.FullName 'android.jar' } | Where-Object { Test-Path $_ } | Select-Object -First 1
 $xposed = Join-Path $project 'app/libs/api-82.jar'
-$out = Join-Path $env:TEMP 'jiege_offline_tests'
-Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+$out = Join-Path $project ('build/offline-tests/' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force $out | Out-Null
+$gradleCache = if ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { Join-Path $env:USERPROFILE '.gradle' }
 
 # api-82.jar is compile-only stubs; the tests run against a reflection stand-in (shim/) first.
 & javac -encoding UTF-8 -d $out -cp $xposed (Join-Path $PSScriptRoot 'shim/de/robv/android/xposed/XposedHelpers.java')
@@ -16,17 +18,18 @@ if ($LASTEXITCODE -ne 0) { throw 'shim compile failed' }
 $sources = @(Get-ChildItem (Join-Path $project 'app/src/main/java/local/jiege/hook/filters') -Filter *.java | ForEach-Object FullName)
 $sources += (Join-Path $project 'app/src/main/java/local/jiege/hook/common/Log.java')
 $sources += (Join-Path $project 'app/src/main/java/local/jiege/hook/common/Diagnostics.java')
+$sources += (Join-Path $project 'app/src/main/java/local/jiege/hook/common/Install.java')
 $sources += (Join-Path $project 'app/src/main/java/local/jiege/settings/DiagnosticsContract.java')
 $sources += (Join-Path $project 'app/src/main/java/local/jiege/hook/common/Settings.java')
 # FilterGroupInjector reaches the camera through Symbols (DexKit-backed); compile against the DexKit AAR.
 $sources += (Join-Path $project 'app/src/main/java/local/jiege/hook/common/Symbols.java')
 $sources += (Join-Path $project 'app/src/main/java/local/jiege/hook/common/SymbolSearch.java')
-$dexkitAar = Get-ChildItem (Join-Path $env:USERPROFILE '.gradle/caches/modules-2/files-2.1/org.luckypray/dexkit') -Recurse -Filter 'dexkit-*.aar' |
+$dexkitAar = Get-ChildItem (Join-Path $gradleCache 'caches/modules-2/files-2.1/org.luckypray/dexkit') -Recurse -Filter 'dexkit-*.aar' |
     Where-Object { $_.Name -notlike '*sources*' } | Sort-Object Name -Descending | Select-Object -First 1
 if (-not $dexkitAar) { throw 'DexKit AAR not in the Gradle cache (run a Gradle build once)' }
 & tar -xf $dexkitAar.FullName -C $out classes.jar
 if ($LASTEXITCODE -ne 0) { throw 'DexKit classes not extracted' }
-$kotlin = Get-ChildItem (Join-Path $env:USERPROFILE '.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib') -Recurse -Filter 'kotlin-stdlib-2*.jar' |
+$kotlin = Get-ChildItem (Join-Path $gradleCache 'caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib') -Recurse -Filter 'kotlin-stdlib-2*.jar' |
     Where-Object { $_.Name -notlike '*sources*' } | Select-Object -First 1
 if (-not $kotlin) { throw 'kotlin-stdlib not in the Gradle cache' }
 $xposed = "$xposed;$(Join-Path $out 'classes.jar');$($kotlin.FullName)"
@@ -41,6 +44,8 @@ $sources += (Join-Path $project 'app/src/main/java/local/jiege/settings/MasterLo
 $sources += (Join-Path $PSScriptRoot 'StoreOfflineTest.java')
 $sources += (Join-Path $PSScriptRoot 'FiltersOfflineTest.java')
 $sources += (Join-Path $PSScriptRoot 'LutBakerOfflineTest.java')
+$sources += (Join-Path $PSScriptRoot 'XpanCropOfflineTest.java')
+$sources += (Join-Path $project 'app/src/main/java/local/jiege/hook/xpan/XpanCropMath.java')
 & javac -encoding UTF-8 -d $out -cp "$out;$xposed;$android" $sources
 if ($LASTEXITCODE -ne 0) { throw 'offline test compile failed' }
 & java '-Dfile.encoding=UTF-8' -cp "$out;$xposed;$android" FiltersOfflineTest
@@ -52,3 +57,10 @@ if ($LASTEXITCODE -ne 0) { throw 'store tests failed' }
 
 & java -cp $out MasterLooksOfflineTest
 if ($LASTEXITCODE -ne 0) { throw "master colour tests failed" }
+& java -cp $out XpanCropOfflineTest
+if ($LASTEXITCODE -ne 0) { throw 'XPAN geometry tests failed' }
+$python = if ($env:OMNICAM_PYTHON) { $env:OMNICAM_PYTHON } else { 'python' }
+& $python -m unittest discover -s $PSScriptRoot -p test_pop_resources.py -v
+if ($LASTEXITCODE -ne 0) { throw 'POP resource tests failed' }
+& $python (Join-Path $PSScriptRoot 'hassel_startup_test.py') $android
+if ($LASTEXITCODE -ne 0) { throw 'Hassel startup test failed' }

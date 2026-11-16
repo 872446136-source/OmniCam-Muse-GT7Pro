@@ -10,61 +10,9 @@ import java.util.List;
 import local.jiege.hook.common.Log;
 
 /**
- * Camera watermark page: the 哈苏 (HASSELBLAD) section, which on this realme build carries only the
- * XPAN styles and none of the ordinary ones.
- *
- * <p>That page is not the camera's UI — it is {@code com.coloros.gallery3d} rendering
- * {@code PhotoEditorActivity} over the camera. {@code WatermarkCameraSection.K0()} fills the two
- * lists under the HASSELBLAD wordmark:
- *
- * <pre>
- *   camera_hassel_style_list       H0(this, R.string.…_master_hasselblad, show, 2)
- *   camera_hassel_xpan_style_list  H0(this, R.id.…_master_hassel_xpan, false, 6)
- * </pre>
- *
- * <p>{@code show} for the ordinary list is {@code !T0().first && wideScreen}, so the two lists are
- * mutually exclusive: {@code ShowHasselXpanStyle} true means "show XPAN instead". Both go through
- * {@code H0}, which turns its type into a query on the {@code WatermarkMasterVM/StyleViewData}
- * handler — {@code watermarkmaster.b.a([type, flag, show])}.
- *
- * <p><b>Why the ordinary list is empty here.</b> That handler starts with a brand check on the
- * HASSELBLAD type:
- *
- * <pre>
- *   if (type == R.string.picture_editor_text_watermark_master_hasselblad) {
- *       if (WatermarkMasterVM.n0()) return new ArrayList();   // n0() = z9b.c(6, "is_realme_brand")
- *       return vm.L(show);
- *   }
- * </pre>
- *
- * <p>{@code n0()} answers {@code is_realme_brand}, true on this device, so the list is emptied
- * before anything is read — while the XPAN type has no such branch and comes back with its styles.
- * That is exactly the 503 report: three XPAN cards under HASSELBLAD and nothing else.
- *
- * <p><b>Why {@code n0()} itself is not answered.</b> The same flag decides whether the HASSELBLAD
- * type button is added at all ({@code WatermarkMasterVM.x}, {@code if (!n0()) skip}), and it is read
- * from ten places in this package. Answering it false would bring the styles back but drop the
- * button — the section would vanish rather than fill. So the flag is left alone: when the
- * HASSELBLAD query comes back empty, {@code vm.L(show)} is called here instead, which is the same
- * call the handler would have made one line earlier. The list it returns is the one this APK builds
- * ({@code WatermarkMasterStyle.Companion.getBuiltInHasselStyles} plus the resource arrays), so
- * nothing is invented and no count is faked. A non-empty answer is passed through untouched.
- *
- * <p>503 also answered {@code T0()} with {@code Pair(TRUE, TRUE)}. That was the wrong lever: it
- * sets {@code show} false for the ordinary list and true for the XPAN one, which is what produced
- * "only the XPAN styles". It is removed — {@code T0()} keeps whatever the view model says and the
- * XPAN group keeps its stock behaviour.
- *
- * <p><b>Why some cards are black.</b> {@code WatermarkMasterVM.g0(styles, previewRes, type)} builds
- * one card per style and takes its thumbnail with {@code ArraysKt.getOrNull(previewRes, i)}: an
- * index past the end of the preview array yields null, the card's preview field keeps its zero, and
- * nothing is drawn — a black tile. This build's style list is longer than the preview array for the
- * HASSELBLAD type (the brand branch above decides how many styles there are, the array is fixed in
- * the APK), so the tail always lands past the end. {@code alignPreviews} drops that tail, leaving
- * exactly the styles that have a thumbnail — which is what a stock OPPO build shows, because there
- * the two lengths already agree.
- *
- * <p>Escape hatch: {@code touch /data/adb/omnicam_hasselcam_off}.
+ * Restore the gallery's ordinary Hasselblad cards on realme while preserving the camera's
+ * mode/layout flags. L(true) prepends the XPAN panorama cards; it is not a brand unlock.
+ * The two lists use different resource ids and the view model's V flag identifies an XPAN page.
  */
 public final class HasselCameraPage {
     private static final String TAG = "HasselCamPage";
@@ -80,10 +28,7 @@ public final class HasselCameraPage {
     private static final String R_STRING = "com.oplus.gallery.photoeditor.R$string";
     private static final String R_ID = "com.oplus.gallery.photoeditor.R$id";
     private static final String HASSEL_TYPE = "picture_editor_text_watermark_master_hasselblad";
-    private static final String XPAN_TYPE = "picture_editor_text_watermark_master_hassel_xpan";
-
-    /** Set once the ordinary 哈苏 list has content; the XPAN half steps aside from then on. */
-    private static volatile boolean ordinaryFilled;
+    private static final String XPAN_TYPE = "picture3d_editor_id_watermark_master_hassel_xpan";
 
     /** Keep the XPAN cards even when the ordinary list is filled (stock layout with both halves). */
     private static final File KEEP_XPAN = new File("/data/adb/omnicam_hassel_xpan_keep");
@@ -91,7 +36,6 @@ public final class HasselCameraPage {
     /** One line per process for each outcome; the page is rebuilt on every tab switch. */
     private static boolean reportedFill;
     private static boolean reportedMissing;
-    private static boolean reportedTrim;
     private static boolean reportedXpan;
     private static int adapters;
 
@@ -104,35 +48,6 @@ public final class HasselCameraPage {
         }
         Log.guard(TAG, "哈苏样式查询", () -> hookQuery(classLoader));
         Log.guard(TAG, "哈苏分区样式表", () -> watchLists(classLoader));
-        Log.guard(TAG, "哈苏预览对齐", () -> alignPreviews(classLoader));
-    }
-
-    /**
-     * Drops the cards that have no thumbnail. {@code g0} builds one card per style but takes the
-     * thumbnail with {@code getOrNull(previewRes, i)}, so every style past the end of the preview
-     * array is built with a zero preview and renders as a black tile. The style list is longer than
-     * that array on this brand, so the tail is always black.
-     */
-    private static void alignPreviews(ClassLoader classLoader) throws Throwable {
-        Class<?> vm = XposedHelpers.findClass(VM, classLoader);
-        XposedHelpers.findAndHookMethod(vm, "g0", java.util.ArrayList.class, int[].class, int.class,
-            new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
-                    Object built = param.getResult();
-                    int[] previews = param.args.length > 1 && param.args[1] instanceof int[]
-                        ? (int[]) param.args[1] : null;
-                    if (!(built instanceof List) || previews == null || previews.length == 0) return;
-                    List<?> items = (List<?>) built;
-                    if (items.size() <= previews.length) return;
-                    param.setResult(new java.util.ArrayList<Object>(items.subList(0, previews.length)));
-                    if (!reportedTrim) {
-                        reportedTrim = true;
-                        Log.i(TAG, "样式 " + items.size() + " 项、预览 " + previews.length
-                            + " 张，截掉没有缩略图的 " + (items.size() - previews.length) + " 项");
-                    }
-                }
-            });
-        Log.i(TAG, "哈苏预览对齐已挂上");
     }
 
     /**
@@ -171,46 +86,33 @@ public final class HasselCameraPage {
                 Object result = param.getResult();
                 if (!(result instanceof List)) return;
                 if (asked == type) {
-                    if (!((List<?>) result).isEmpty()) {
-                        // Stock on a phone that has the styles: nothing to add, but the fact matters
-                        // to the XPAN branch below, which only steps aside when this list is real.
-                        ordinaryFilled = true;
-                        return;
-                    }
+                    if (!((List<?>) result).isEmpty()) return;
                     try {
                         Object owner = viewModel(param.thisObject, vm);
                         if (owner == null) return;
-                        // Read as the wide-screen, non-XPAN case even when this phone answers
-                        // "XPAN" for the pair: that flag is what the ordinary list is built for,
-                        // and asking for the XPAN case returns the wide cards that render as one
-                        // oversized tile. The list is dropped to the thumbnails below either way.
-                        Object filled = read.invoke(owner, true);
+                        // L(true) prepends M(false), the XPAN panorama cards. Preserve the
+                        // section's actual mode/layout flag instead of treating true as ordinary.
+                        Object filled = read.invoke(owner, Boolean.TRUE.equals(args[2]));
                         if (!(filled instanceof List) || ((List<?>) filled).isEmpty()) return;
                         param.setResult(filled);
-                        ordinaryFilled = true;
                         if (!reportedFill) {
                             reportedFill = true;
                             Log.i(TAG, "普通哈苏样式 " + ((List<?>) filled).size()
-                                + " 项（按 show=true 读），替换掉品牌门禁给的空列表");
+                                + " 项（按页面模式读），替换掉品牌门禁给的空列表");
                         }
                     } catch (Throwable error) {
                         Log.e(TAG, "普通哈苏样式重算失败", error);
                     }
                     return;
                 }
-                // The XPAN list and the ordinary one are two halves of one row — stock builds only
-                // ever fill one, because ShowHasselXpanStyle decides which. This brand answers
-                // "XPAN" for a phone that has no ordinary styles, so with the ordinary list filled
-                // both come back and the row mixes a full-width XPAN card in with the normal ones,
-                // which reads on screen as one card that is far too large. Once the ordinary list
-                // is there, the XPAN half is emptied.
-                if (xpan != 0 && asked == xpan && ordinaryFilled && !KEEP_XPAN.exists()
+                // An XPAN-only row must not be offered from ordinary camera settings.
+                if (xpan != 0 && asked == xpan && !isXpanPage(param.thisObject, vm) && !KEEP_XPAN.exists()
                     && !((List<?>) result).isEmpty()) {
                     int dropped = ((List<?>) result).size();
                     param.setResult(new java.util.ArrayList<Object>());
                     if (!reportedXpan) {
                         reportedXpan = true;
-                        Log.i(TAG, "普通哈苏已填充，XPAN 那 " + dropped
+                        Log.i(TAG, "非 XPAN 页面，隐藏专用水印 " + dropped
                             + " 张收起来（放 " + KEEP_XPAN + " 可保留）");
                     }
                 }
@@ -268,6 +170,18 @@ public final class HasselCameraPage {
             }
         }
         return null;
+    }
+
+    /** 17.10.41 V reads CameraWatermarkSetting.ai_master_watermark_mode_name. */
+    private static boolean isXpanPage(Object handler, Class<?> vm) {
+        try {
+            Object owner = viewModel(handler, vm);
+            Object lazy = XposedHelpers.getObjectField(owner, "V");
+            return Boolean.TRUE.equals(XposedHelpers.callMethod(lazy, "getValue"));
+        } catch (Throwable unavailable) {
+            // Keep the original group when a future gallery changes its mode contract.
+            return true;
+        }
     }
 
     /** Read-only: how many items the 哈苏 adapters actually get, so the next report says where to look. */

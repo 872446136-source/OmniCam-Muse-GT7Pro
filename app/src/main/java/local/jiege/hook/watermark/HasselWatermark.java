@@ -9,51 +9,9 @@ import java.util.List;
 import local.jiege.hook.common.Log;
 
 /**
- * Gallery photo editor: the 哈苏 (HASSELBLAD) group of the master-watermark list.
- *
- * <p>486 report: the watermark page shows the HASSELBLAD heading and then nothing under it — "只显示
- * hasselblad 没有水印可以选择". The heading is drawn per series from whatever styles the list
- * carries, so an empty group means the list had no {@code hassel_style_*} entry in it.
- *
- * <p>That list is built by
- * {@code WatermarkMasterStyle$Companion.getBuiltInHasselStyles(boolean, boolean)}. The class is not
- * obfuscated, so it is reached by name and no symbol is needed. Its shape is:
- *
- * <pre>
- *   list = []
- *   if (masterMode) list += getHasselMasterModeStyles()      // hassel_style_master_mode_1
- *   if (xpan)       list += getHasselXpanStyles()            // hassel_style_xpan_1
- *   for i in 1..count: list += Pair("hassel_style_" + i, getStyleFileNameById(...))
- *   for i in 1..count: list += Pair("hassel_text_style_" + i, ...)
- * </pre>
- *
- * <p>{@code count} is not a constant: it is read through {@code k6q.a(int, String)}, a config /
- * resource lookup. On this realme build it answers 0, so the two loops add nothing and the group is
- * empty — while the artwork is right there in the APK. The realme gallery 17.10.41 ships every file
- * the group needs, checked by name against the installed APK:
- *
- * <pre>
- *   assets/watermark_master_styles/hassel_style_1.json … _4.json
- *   assets/watermark_master_styles/hassel_text_style_1.json, _2.json
- *   assets/watermark_master_styles/hassel_style_master_mode_1.json
- *   assets/watermark_master_styles/hassel_style_xpan_1.json
- * </pre>
- *
- * <p>So the hook does two things, both narrow: it serves the call with both flags true (so the
- * master-mode and XPAN styles are not dropped either), and when the result carries no
- * {@code hassel_style_*} entry it appends the seven ids above, each paired with the file name the
- * companion itself computes. Nothing is invented: the ids, the file names and the artwork all come
- * from this APK. A list that already has the group is passed through untouched.
- *
- * <p>Escape hatch: {@code touch /data/adb/omnicam_hasselwm_off}.
- *
- * <p><b>487: the hook above never ran.</b> The 486 report has {@code hassel style list hooked} and
- * nothing after it — the watermark page was open at 01:20:43 and {@code getBuiltInHasselStyles} was
- * not called once in that whole session, so this build's list is assembled somewhere else. Rather
- * than guess again, this version also logs what the section really builds: {@code getSeries(String)}
- * is the companion method the grouping calls once per style id, and it is not obfuscated, so a
- * single line list of the ids that pass through it says outright whether {@code hassel_style_*} is
- * in the list at all. The fill stays for the case where the method is on the path.
+ * Enable the gallery's Hasselblad section and fill its built-in styles only when absent.
+ * Gallery 17.10.41 has four normal frames and two text styles. The boolean arguments select
+ * master-mode and XPAN extras; forcing them shifts ids away from their matching thumbnails.
  */
 public final class HasselWatermark {
     private static final String TAG = "HasselWatermark";
@@ -166,12 +124,6 @@ public final class HasselWatermark {
         final Class<?> companion = XposedHelpers.findClass(COMPANION, classLoader);
         XposedHelpers.findAndHookMethod(companion, "getBuiltInHasselStyles", boolean.class, boolean.class,
             new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    // Both flags gate a subset (master mode, XPAN); neither is a brand check.
-                    param.args[0] = Boolean.TRUE;
-                    param.args[1] = Boolean.TRUE;
-                }
-
                 @Override protected void afterHookedMethod(MethodHookParam param) {
                     try {
                         fill(companion, classLoader, param);
@@ -242,7 +194,7 @@ public final class HasselWatermark {
         List<?> original = (List<?>) value;
         for (Object item : original) {
             Object first = first(item);
-            if (first instanceof String && ((String) first).startsWith("hassel_style_")) {
+            if (first instanceof String && ((String) first).matches("hassel_style_[1-4]")) {
                 if (!reported) {
                     reported = true;
                     Log.i(TAG, "built-in hassel group present (" + original.size() + " styles), left alone");
@@ -253,8 +205,9 @@ public final class HasselWatermark {
         ArrayList<Object> filled = new ArrayList<>(original.size() + FRAMES.length + TEXTS.length + 2);
         filled.addAll(original);
         int added = 0;
-        added += add(companion, classLoader, filled, MASTER_MODE);
-        added += add(companion, classLoader, filled, XPAN);
+        // These are mode flags, not brand gates. Extra ids shift every thumbnail index.
+        if (Boolean.TRUE.equals(param.args[0])) added += addIfMissing(companion, classLoader, filled, MASTER_MODE);
+        if (Boolean.TRUE.equals(param.args[1])) added += addIfMissing(companion, classLoader, filled, XPAN);
         for (String id : FRAMES) added += add(companion, classLoader, filled, id);
         for (String id : TEXTS) added += add(companion, classLoader, filled, id);
         if (added == 0) {
@@ -269,6 +222,11 @@ public final class HasselWatermark {
     }
 
     /** Pair(styleId, fileName) the way the companion builds it; skipped when it has no file name. */
+    private static int addIfMissing(Class<?> companion, ClassLoader loader, List<Object> into, String id) {
+        for (Object item : into) if (id.equals(first(item))) return 0;
+        return add(companion, loader, into, id);
+    }
+
     private static int add(Class<?> companion, ClassLoader classLoader, List<Object> into, String id) {
         try {
             Object fileName = XposedHelpers.callStaticMethod(companion, "getStyleFileNameById", id);

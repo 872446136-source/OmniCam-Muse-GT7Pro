@@ -1,5 +1,6 @@
 # fetched at build time by .github/workflows/build-full.yml (upstream data layer)
 /module/payload/
+/inputs/master_luts/
 /module/system/
 /module/merged/
 /module/bind.log

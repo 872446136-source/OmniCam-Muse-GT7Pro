@@ -1,6 +1,6 @@
 id=ricoh_pop_x9u
 name=OmniCam Muse (GT7Pro)
-version=Muse 4.33 GT7Pro
-versionCode=505
+version=Muse GT7Pro 513-test
+versionCode=513
 author=local-port
-description=拍照、视频、人像 Lite。505：哈苏水印页按宽屏用例读样式表（此前读的是 XPAN 用例，整行只有一张超大卡），XPAN 那半行在有普通样式时收起；诊断不再把 12 个本机没有的入口算成注入异常；理光 tuning 补上冷-暖/青-品红通道，色温与色调滑杆有通道可走。
+description=GT7 Pro 测试版 513：保留 512 基线；修复 XPAN 开／关水印的成片裁切与布局；恢复普通哈苏卡片；分别保存普通与 XPAN 水印状态。POP 色调仍待修复。

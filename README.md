@@ -8,7 +8,7 @@
 | 相机 / 相册 | `com.oplus.camera` 7.013.51 / `com.coloros.gallery3d` 17.10.41 |
 | 模块 ID | `ricoh_pop_x9u` |
 | 设置应用 | `local.jiege.camera`（随模块一起安装） |
-| 当前版本 | Muse 4.33 GT7Pro（versionCode 505） |
+| 当前版本 | Muse GT7Pro 513-test（versionCode 513） |
 | 上游基线 | Muse 4.4.4（`benbaobaoshigemi/OmniCam-Muse`） |
 
 本仓库是**完整版**：只有一个包，没有 Lite 分支，也没有 Lite 功能表。所有功能都编译进同一个 APK，装到手机上时再按本机实际能力逐项决定开不开——挂载缺了、符号对不上、模式表里没有的，那一项就不装。设置应用的「注入状态」页会列出每一项的结果和原因，不用看日志猜。
@@ -137,6 +137,8 @@ $env:OMNICAM_PYTHON = 'python'
 `build.ps1` 依次跑色彩目录检查、离线测试、脚本语法检查和 `assembleRelease`。仓库里没有 `port.keystore`（已忽略）时只产出未签名 APK；放好密钥并设置 `OMNICAM_STORE_PASSWORD`、`OMNICAM_KEY_ALIAS`、`OMNICAM_KEY_PASSWORD` 后才会签名并打包模块 zip。不同证书签名的 APK 不能直接覆盖安装。
 
 ## 已知问题
+
+**513 测试版**包含 512 基线，并已在 GT7 Pro 上验证 XPAN 开／关水印均能裁切、普通哈苏卡片恢复及普通／XPAN 水印状态分开保存。修复与验证范围见 [RELEASE-513](docs/RELEASE-513.md)，512 基线见 [RELEASE-512](docs/RELEASE-512.md)。**POP 色调仍待修复，本版未包含尚未完成的色调实验。** 以下保留为 **505 的历史排查记录**，不代表当前状态。
 
 按 505 的状态分三类：**还没解决的**、**改完但没上真机确认的**、**本机确实没有、只做降级的**。设置应用「注入状态」页会逐项给出结果，每一项的来龙去脉在对应的 `docs/RELEASE-*.md`。
 

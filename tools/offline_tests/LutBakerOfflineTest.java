@@ -34,6 +34,8 @@ public final class LutBakerOfflineTest {
     public static void main(String[] args) throws Exception {
         Path project = Paths.get(args[0]);
         byte[] header = Files.readAllBytes(project.resolve("app/src/main/assets/mslut_header.bin"));
+        Path baked = project.resolve("module/payload/meishe_lut");
+        if (!Files.isDirectory(baked)) baked = project.resolve("module/system/odm/etc/camera/meishe_lut");
         long samples = 0, off1 = 0;
         for (String[] pair : PAIRS) {
             Rec709LutBaker.Cube cube;
@@ -42,7 +44,7 @@ public final class LutBakerOfflineTest {
                 cube = Rec709LutBaker.parse(reader);
             }
             byte[] java = Rec709LutBaker.bake(cube, header);
-            byte[] python = Files.readAllBytes(project.resolve("module/payload/meishe_lut").resolve(pair[1]));
+            byte[] python = Files.readAllBytes(baked.resolve(pair[1]));
             if (java.length != python.length) fail(pair[1] + ": size " + java.length + " vs " + python.length);
             for (int i = 0; i < Rec709LutBaker.HEADER_SIZE; i++) if (java[i] != python[i]) fail(pair[1] + ": header differs at " + i);
             int fileOff1 = 0;

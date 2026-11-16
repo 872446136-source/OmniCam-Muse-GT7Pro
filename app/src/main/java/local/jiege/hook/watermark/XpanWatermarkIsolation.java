@@ -78,7 +78,7 @@ public final class XpanWatermarkIsolation {
             @Override protected void beforeHookedMethod(MethodHookParam param) {
                 String from = (String) param.args[0];
                 String to = (String) param.args[1];
-                if (TextUtils.isEmpty(to) || to.equals(from) || !Settings.get(ModuleSettings.XPAN_WATERMARK_ISOLATION)) return;
+                if (TextUtils.isEmpty(to) || !Settings.get(ModuleSettings.XPAN_WATERMARK_ISOLATION)) return;
                 try {
                     synchronized (state) {
                         if (state.live == null) init(symbols, state);
@@ -110,9 +110,12 @@ public final class XpanWatermarkIsolation {
                         if (state.live == null) init(symbols, state);
                     }
                     String style = read(symbols, classLoader, state.live.style, "");
-                    if (style.isEmpty()) return;
                     Object current = param.getResult();
                     String shown = current instanceof JSONObject ? ((JSONObject) current).optString("styleId") : "";
+                    if (style.isEmpty()) {
+                        if (shown.startsWith("hassel_")) param.setResult(null);
+                        return;
+                    }
                     if (style.equals(shown) || POP_STYLE.equals(shown)) return;
                     File json = styleJson(PHOTO_DIR, style);
                     if (!json.isFile()) return;
@@ -186,14 +189,14 @@ public final class XpanWatermarkIsolation {
         DataStore.put(symbols, loader, live.style, "");
         DataStore.put(symbols, loader, live.open, Boolean.FALSE);
         setCapture(symbols, loader, live, "off");
-        if (read(symbols, loader, live.backup, "").startsWith(XPAN_STYLE_PREFIX)) DataStore.put(symbols, loader, live.backup, "");
+        DataStore.put(symbols, loader, live.backup, "");
     }
 
     /** Leaving XPAN (or launching outside it): the XPAN style goes aside and the other mode's watermark comes back. */
     private static void leaveXpan(Symbols symbols, ClassLoader loader, State state) throws Throwable {
         String style = read(symbols, loader, state.live.style, "");
-        if (!style.startsWith(XPAN_STYLE_PREFIX)) return;
-        save(symbols, loader, state.live, state.xpan);
+        if (!style.isEmpty() && !style.startsWith(XPAN_STYLE_PREFIX)) return;
+        if (!style.isEmpty()) save(symbols, loader, state.live, state.xpan);
         boolean restored = restore(symbols, loader, state.other, state.live);
         if (!restored) clear(symbols, loader, state.live);
         Log.i(TAG, "left XPAN, saved " + style + (restored ? ", other watermark restored" : ", slot cleared"));
@@ -205,6 +208,7 @@ public final class XpanWatermarkIsolation {
         if (style.startsWith(XPAN_STYLE_PREFIX)) return;
         if (!style.isEmpty()) save(symbols, loader, state.live, state.other);
         boolean restored = restore(symbols, loader, state.xpan, state.live);
+        if (!restored) clear(symbols, loader, state.live);
         Log.i(TAG, "entered XPAN, " + (restored ? "restored XPAN watermark" : "no saved XPAN watermark") + (style.isEmpty() ? "" : ", set aside " + style));
     }
 
@@ -225,7 +229,20 @@ public final class XpanWatermarkIsolation {
     /** True if the style's files are in place; a missing folder is copied back from the backup. */
     private static boolean ensureFiles(String style) {
         if (styleJson(PHOTO_DIR, style).isFile()) return true;
-        if (!styleJson(BACKUP_DIR, style).isFile()) return false;
+        if (!styleJson(BACKUP_DIR, style).isFile()) {
+            // Built-ins are APK assets on gallery 17.10.41, not downloaded style folders.
+            // HasselResources loads the same asset when the camera's file cache is absent.
+            if (style.matches("hassel_(?:style_(?:[1-4]|xpan_1|master_mode_1)|text_style_[12])")) {
+                android.content.Context camera = android.app.AndroidAppHelper.currentApplication();
+                if (camera != null) {
+                    try (java.io.InputStream input = camera.createPackageContext("com.coloros.gallery3d", 0)
+                            .getAssets().open("watermark_master_styles/" + style + ".json")) {
+                        return input.read() >= 0;
+                    } catch (Exception absent) { return false; }
+                }
+            }
+            return false;
+        }
         try {
             copyTree(new File(BACKUP_DIR, style).toPath(), new File(PHOTO_DIR, style).toPath());
         } catch (IOException error) {

@@ -5,6 +5,8 @@ import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.SoundPool;
 import android.os.SystemClock;
+import android.os.Handler;
+import android.os.Message;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
@@ -86,6 +88,7 @@ public final class ShutterSound {
 
         // SoundPlayer.silence() silences the ringer on purpose (CameraManager message 15) until
         // SoundPlayer.unsilence() restores it; sounds stay off in that window, as in the stock camera.
+        if (symbols.has("SoundPlayer.silence", "SoundPlayer.unsilence")) {
         XposedBridge.hookMethod(symbols.method("SoundPlayer.silence"), new XC_MethodHook() {
             @Override protected void beforeHookedMethod(MethodHookParam param) {
                 cameraSilenced = true;
@@ -96,6 +99,27 @@ public final class ShutterSound {
                 cameraSilenced = false;
             }
         });
+        } else {
+            // 7.013.51 merges ready/restore into r(long). Its private Handler still owns
+            // the mute state (message 2, arg1=0). Resolve it before arming the sound hooks.
+            if (!symbols.has("SoundPlayer.restoreReady"))
+                throw new NoSuchMethodException("SoundPlayer silence contract unresolved");
+            Class<?> handler = null;
+            for (Field field : playerClass.getDeclaredFields()) {
+                Class<?> type = field.getType();
+                if (type == Handler.class || !Handler.class.isAssignableFrom(type)) continue;
+                if (handler != null && handler != type) throw new NoSuchMethodException("Ambiguous sound Handler");
+                handler = type;
+            }
+            if (handler == null) throw new NoSuchMethodException("SoundPlayer private Handler");
+            XposedBridge.hookMethod(handler.getDeclaredMethod("handleMessage", Message.class), new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    Message message = (Message) param.args[0];
+                    if (message != null && message.what == 2) cameraSilenced = message.arg1 == 0;
+                }
+            });
+            Log.i(TAG, "using merged ready/restore sound contract");
+        }
 
         // SoundPlayer.refresh(int) refreshes volume and ringer mode.
         XposedBridge.hookMethod(refresh, new XC_MethodHook() {

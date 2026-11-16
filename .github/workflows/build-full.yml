@@ -115,7 +115,7 @@ jobs:
           # a table; a table it cannot find at all becomes zeros. Both are a black preview and a green
           # frame. service.sh copies gr_lmt64 over the device's own SCLut0..8.
           python3 tools/gr_lmt.py module/payload/gr_adjustment_lmt module/payload/gr_lmt64 --size 64
-          rm -rf module/payload/gr_adjustment_lmt
+          # Retain the original SC/CWCM grids until CombineLut's layer is staged below.
           ls -l module/payload/gr_lmt64 | head -4
           test "$(ls module/payload/gr_lmt64 | wc -l)" = 9
           du -sh module/payload/*
@@ -169,6 +169,10 @@ jobs:
           # instead of a directory with no lut_size and no switch block.
           cp -a tools/setting_retro "$BT/setting_Retro"
 
+          # BasicTonePhoto and CombineLut use different settings and table names.
+          python3 tools/prepare_pop_resources.py module/payload/gr_adjustment_lmt \
+            module/payload/setting_Retro "$BT"
+
           # Report what the layer actually contains, and fail loudly on the two files that decide
           # whether POP renders at all.
           du -sh "$CAM" "$BT"/* | sort -h
@@ -180,7 +184,8 @@ jobs:
           # The layer is the only copy now. Leaving the same bytes in payload/ as well would double
           # the download for no reason, and a stale duplicate is how the two sources start to drift.
           rm -rf module/payload/meishe_lut module/payload/x10_basictone module/payload/gr_lmt64 \
-                 module/payload/pld_watermark module/payload/apk_resources module/payload/setting_Retro
+                 module/payload/pld_watermark module/payload/apk_resources module/payload/setting_Retro \
+                 module/payload/gr_adjustment_lmt
           du -sh module/payload/*
 
       - name: Meishe renderer in the mount layer
@@ -219,6 +224,10 @@ jobs:
 
       - name: assembleRelease
         run: |
+          python3 -m unittest discover -s tools/offline_tests -p test_pop_resources.py -v
+          mkdir -p build/xpan-tests
+          javac -d build/xpan-tests app/src/main/java/local/jiege/hook/xpan/XpanCropMath.java tools/offline_tests/XpanCropOfflineTest.java
+          java -cp build/xpan-tests XpanCropOfflineTest
           sed -i 's/\r$//' gradlew
           chmod +x gradlew
           ./gradlew :app:assembleRelease --console=plain --stacktrace
@@ -265,6 +274,9 @@ jobs:
           fi
           for NAME in basictone/lmt_gr/SCLut0 basictone/lmt_gr/LMTLut0 \
                       basictone/setting_Retro/SimTool.ini \
+                      basictone/setting_Retro/SimTool_Master.ini \
+                      basictone/setting_Retro/SimTool_Photo_Master.ini \
+                      basictone/lmt/BaseLut basictone/lmt/SC32Lut4 basictone/lmt/CWCM32Lut8 \
                       basictone/pop_port/pld_watermark/pld/pld.json \
                       basictone/pop_port/apk_resources/json \
                       basictone/mode_limit_watermark/gr_style_1/gr_style_1.json \

@@ -63,7 +63,9 @@ public final class StoreOfflineTest {
             id = store.importCube("content://x/Documents/My Green.cube", cube, header);
         }
         rows = store.rows();
-        byte[] expected = Files.readAllBytes(project.resolve("module/payload/meishe_lut/JG_RICOH_CINEMA_GREEN.cube.rgb.bin"));
+        Path baked = project.resolve("module/payload/meishe_lut");
+        if (!Files.isDirectory(baked)) baked = project.resolve("module/system/odm/etc/camera/meishe_lut");
+        byte[] expected = Files.readAllBytes(baked.resolve("JG_RICOH_CINEMA_GREEN.cube.rgb.bin"));
         check("import: ID, title and category", MasterConfig.isImportId(id) && name(rows, id).equals("导入滤镜-My Green") && row(rows, id).imported);
         check("import: LUT converted like the module's", java.util.Arrays.equals(Files.readAllBytes(store.lutFile(id).toPath()), expected));
         check("import: config records it", store.config().imported.size() == 1 && store.config().imported.get(0).size == expected.length);

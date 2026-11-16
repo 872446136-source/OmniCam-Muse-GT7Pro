@@ -86,7 +86,7 @@ internal fun LazyListScope.homeItems(cardModifier: Modifier, onOpenLog: () -> Un
     item(key = "verification") {
         SmallTitle(text = "校验")
         Card(modifier = cardModifier) {
-            BasicComponent(title = "验证完成", summary = "开发模式 · 全部功能可用")
+            BasicComponent(title = "本地适配测试版", summary = "功能状态请查看注入状态；新增功能仍需真机验证")
         }
     }
     item(key = "info") {

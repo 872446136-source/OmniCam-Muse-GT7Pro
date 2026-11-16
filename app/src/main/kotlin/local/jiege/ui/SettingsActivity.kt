@@ -262,6 +262,10 @@ private fun LazyListScope.shootItems(store: SettingsStore, cardModifier: Modifie
                 title = "4K / 60fps 视频滤镜",
                 summary = "普通视频在 4K、60fps 下保留滤镜，不回退到 1080p30",
             )
+            SettingSwitch(store = store, key = ModuleSettings.VIDEO_BEAUTY_HIGH_SPEC,
+                title = "放宽视频美颜规格", summary = "普通视频保留美颜入口与所选分辨率、帧率；GT7 Pro 待实拍验证")
+            SettingSwitch(store = store, key = ModuleSettings.VIDEO_OLIVE_UNLIMITED,
+                title = "延长实况导出", summary = "相册视频编辑器最长支持 24 小时，长视频导出需要更多空间")
         }
     }
     softLightItems(store, cardModifier, onOpenSoftLight, onOpenXpanClean)

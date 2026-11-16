@@ -64,6 +64,8 @@ public final class ModuleSettings {
     public static final String MASTER_LOOK_EXPOSURE = "master_look_exposure";
     /** Master colour exposure alignment to the stock look (MasterAlign.*): added to the exposure compensation. */
     public static final String MASTER_ALIGN = "master_align";
+    public static final String VIDEO_BEAUTY_HIGH_SPEC = "video_beauty_high_spec";
+    public static final String VIDEO_OLIVE_UNLIMITED = "video_olive_unlimited";
 
     /** Normal video: keep normal filters at 4K30 / 4K60 / 1080p60 (stock falls back to 1080p30). */
     public static final String VIDEO_FILTER_HIGH_SPEC = "video_filter_high_spec";
@@ -140,6 +142,8 @@ public final class ModuleSettings {
     }
 
     public static int defaultInt(String key) {
+        if (MasterExposure.isModeKey(key)) return MasterExposure.LEGACY;
+        if (MasterExposure.isOffsetKey(key) || MasterExposure.isAlignKey(key)) return 0;
         if (SHUTTER_VOLUME.equals(key)) return 60;
         if (FILTER_PANEL_TRIGGER.equals(key)) return FILTER_PANEL_SWIPE_UP;
         if (NATURAL_SOFTEN.equals(key)) return 0;
@@ -163,6 +167,8 @@ public final class ModuleSettings {
             case SHUTTER_ALWAYS:
             case SHUTTER_VOLUME_CUSTOM:
             case VIDEO_FILTER_HIGH_SPEC:
+            case VIDEO_BEAUTY_HIGH_SPEC:
+            case VIDEO_OLIVE_UNLIMITED:
             case POP_SDR_STYLE:
             case NATURAL_MODE:
             case DUMP_RAW:

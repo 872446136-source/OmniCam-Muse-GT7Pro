@@ -31,7 +31,7 @@ public final class MasterAlign {
     public static boolean available(String look, int mode) {
         if (mode == NONE) return true;
         float[] offsets = MasterAlignTable.OFFSETS.get(look);
-        return offsets != null && mode <= offsets.length && !Float.isNaN(offsets[mode - 1]);
+        return offsets != null && mode > 0 && mode <= offsets.length && !Float.isNaN(offsets[mode - 1]);
     }
 
     /** EV to add to the exposure compensation; 0 when the mode is NONE or the look does not offer it. */

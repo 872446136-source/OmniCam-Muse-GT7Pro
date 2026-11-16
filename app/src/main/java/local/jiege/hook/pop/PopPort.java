@@ -51,6 +51,8 @@ public final class PopPort {
             Log.e(TAG, "POP high pixel hook unavailable", error);
         }
         Log.guard(TAG, "POP preview parameters", () -> PopPreviewParameters.install(classLoader));
+        Log.guard(TAG, "POP tint preview", () -> PopTintPreview.install(classLoader));
+        Log.guard(TAG, "POP LUT diagnostics", () -> PopLutTrace.install(classLoader));
         try {
             PopSdrStyle.install(classLoader);
         } catch (Throwable error) {

@@ -14,6 +14,7 @@ add_library(jiege_native SHARED
     hdrt_dump.cpp
     gr_basictone.cpp
     pop_path_remap.cpp
+    pop_tint.cpp
     profile_config.cpp
     natural_mode.cpp
     unlock25mp.cpp

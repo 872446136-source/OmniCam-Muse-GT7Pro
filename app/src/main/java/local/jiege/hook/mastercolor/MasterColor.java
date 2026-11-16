@@ -22,6 +22,7 @@ import local.jiege.hook.common.Log;
 import local.jiege.hook.common.Settings;
 import local.jiege.hook.common.Symbols;
 import local.jiege.settings.MasterAlign;
+import local.jiege.settings.MasterExposure;
 import local.jiege.settings.MasterLooks;
 import local.jiege.settings.ModuleSettings;
 
@@ -52,7 +53,7 @@ public final class MasterColor {
     private static final int CCT_STEP = 100;
     private static final int CCT_HYSTERESIS = 40;
     private static final float PREVIEW_MATRIX_CHANGE = 0.02f;
-    private static final long SETTING_INTERVAL_MS = 1000;
+    private static final long SETTING_INTERVAL_MS = 200;
 
     private static final CaptureResult.Key<Integer> AWB_CCT = key("org.quic.camera2.statsconfigs.AWBFrameControlCCT", Integer.class);
 
@@ -135,9 +136,9 @@ public final class MasterColor {
         int tone = blend ? clampPercent(Settings.getInt(ModuleSettings.MASTER_BLEND_TONE)) : 100;
         int colour = blend ? clampPercent(Settings.getInt(ModuleSettings.MASTER_BLEND_COLOUR)) : 100;
         if (tone == 0 && colour == 0) id = "oppo";
-        float ev = Math.max(-400, Math.min(400, Settings.getInt(ModuleSettings.MASTER_LOOK_EXPOSURE))) / 100f
-            + MasterAlign.offset(id, Settings.getInt(ModuleSettings.MASTER_ALIGN));
-        ev = Math.max(-4f, Math.min(4f, Math.round(ev * 100f) / 100f));
+        float ev = MasterExposure.ev(id, Settings.getInt(MasterExposure.modeKey(family)),
+            Settings.getIntOr(MasterExposure.offsetKey(family), Settings.getInt(ModuleSettings.MASTER_LOOK_EXPOSURE)),
+            Settings.getIntOr(MasterExposure.alignKey(family), Settings.getInt(ModuleSettings.MASTER_ALIGN)));
         int[] density = new int[] {
             Math.max(50, Math.min(150, Settings.getInt(ModuleSettings.MASTER_FILM_DENSITY_C))),
             Math.max(50, Math.min(150, Settings.getInt(ModuleSettings.MASTER_FILM_DENSITY_M))),

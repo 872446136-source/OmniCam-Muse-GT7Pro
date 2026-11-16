@@ -23,6 +23,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import local.jiege.settings.MasterAlign
+import local.jiege.settings.MasterExposure
 import local.jiege.settings.MasterLooks
 import local.jiege.settings.ModuleSettings
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -105,6 +106,7 @@ fun MasterLookScreen(padding: PaddingValues, nestedScrollConnection: NestedScrol
     }
     var mode by remember { mutableStateOf(store.getInt(ModuleSettings.MASTER_LOOK_MODE)) }
     var film by remember { mutableStateOf(store.getInt(ModuleSettings.MASTER_LOOK_FILM)) }
+    var exposureMode by remember(family) { mutableStateOf(store.getInt(MasterExposure.modeKey(family))) }
     // Changes with every choice, so the parameter card follows the chosen look; the sub-choices keep their own state.
     var choiceRevision by remember { mutableStateOf(0) }
     var resetRevision by remember { mutableStateOf(0) }
@@ -273,10 +275,30 @@ fun MasterLookScreen(padding: PaddingValues, nestedScrollConnection: NestedScrol
                 store.getInt(ModuleSettings.MASTER_LOOK_PRINT), store.getInt(ModuleSettings.MASTER_HNCS_INTENT),
                 store.getInt(ModuleSettings.MASTER_HNCS_CURVE))
         }
-        if (MasterAlign.covered(lookId)) {
+        item(key = "exposure_$family") {
+            SmallTitle(text = "曝光补偿")
+            Card(modifier = cardModifier) {
+                RadioButtonPreference(title = "偏移量", summary = "单独保存当前色彩引擎的亮暗设置",
+                    selected = exposureMode == MasterExposure.OFFSET, onClick = {
+                        exposureMode = MasterExposure.OFFSET
+                        store.setInt(MasterExposure.modeKey(family), exposureMode)
+                    })
+                if (MasterAlign.covered(lookId)) RadioButtonPreference(title = "曝光对齐",
+                    summary = "按中灰、中间调或高光对齐原厂亮度",
+                    selected = exposureMode == MasterExposure.ALIGN, onClick = {
+                        exposureMode = MasterExposure.ALIGN
+                        store.setInt(MasterExposure.modeKey(family), exposureMode)
+                    })
+                if (exposureMode == MasterExposure.LEGACY) BasicComponent(title = "沿用旧设置",
+                    summary = "保留之前的偏移量与曝光对齐；选择上方模式即可切换")
+                if (exposureMode != MasterExposure.ALIGN) SettingNumber(store, MasterExposure.offsetParam(family))
+                BasicComponent(title = "调整参考", summary = "胶片可尝试正值；HNCS 可从 −0.3 至 −0.7 EV 试起。修改后在相机预览中比较。")
+            }
+        }
+        if (MasterAlign.covered(lookId) && exposureMode != MasterExposure.OFFSET) {
             item(key = "align_$lookId") {
                 var align by remember(lookId) {
-                    val stored = store.getInt(ModuleSettings.MASTER_ALIGN)
+                    val stored = store.getInt(MasterExposure.alignKey(family))
                     mutableStateOf(if (MasterAlign.available(lookId, stored)) stored else MasterAlign.NONE)
                 }
                 SmallTitle(text = "曝光对齐")
@@ -289,7 +311,7 @@ fun MasterLookScreen(padding: PaddingValues, nestedScrollConnection: NestedScrol
                             selected = align == index,
                             onClick = {
                                 align = index
-                                store.setInt(ModuleSettings.MASTER_ALIGN, index)
+                                store.setInt(MasterExposure.alignKey(family), index)
                             },
                         )
                     }

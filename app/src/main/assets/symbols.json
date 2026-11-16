@@ -2879,6 +2879,23 @@
         "boolean"
       ],
       "ret": "void"
+    },
+    "VideoMode.beautyBlocked": {
+      "kind": "method",
+      "params": [],
+      "ret": "boolean",
+      "strings": [
+        "com.oplus.feature.video.blur.beauty.1080p.support"
+      ]
+    },
+    "VideoMode.beautyMenuAllowed": {
+      "kind": "method",
+      "params": [],
+      "ret": "boolean",
+      "strings": [
+        "CommonVideoMode",
+        "com.oplus.feature.facebeauty.support.videosize"
+      ]
     }
   },
   "gallery": {
@@ -3139,6 +3156,71 @@
       "fields": [
         "Lcom/oplus/gallery/photoeditor/R$layout;->picture3d_editor_watermark_camera_type_segment:I"
       ]
+    },
+    "Config.getInt": {
+      "kind": "method",
+      "params": [
+        "java.lang.String",
+        "int"
+      ],
+      "ret": "int",
+      "static": true,
+      "strings": [
+        "getInt configAbility is null, configId:"
+      ]
+    },
+    "ExportOliveTask.run": {
+      "kind": "method",
+      "params": [],
+      "ret": "void",
+      "static": false,
+      "strings": [
+        "ExportOliveTask",
+        "get frame task error",
+        "source file error"
+      ]
+    },
+    "ExportOliveTask": {
+      "kind": "class",
+      "ownerOf": "@ExportOliveTask.run"
+    },
+    "ExportOliveTask.setStop": {
+      "kind": "method",
+      "in": "@ExportOliveTask",
+      "params": [
+        "boolean"
+      ],
+      "ret": "void",
+      "static": false
+    },
+    "ExportOliveTask.isMenuExport": {
+      "kind": "field",
+      "in": "@ExportOliveTask",
+      "type": "boolean",
+      "static": false,
+      "notWrittenBy": [
+        "@ExportOliveTask.setStop"
+      ]
+    },
+    "OliveExportLimit.maxMs": {
+      "kind": "method",
+      "params": [],
+      "ret": "long",
+      "static": true,
+      "calledBy": [
+        "@ExportOliveTask.run"
+      ],
+      "optional": true
+    },
+    "TopActionbarSection.oliveDescription": {
+      "kind": "method",
+      "params": [],
+      "ret": "java.lang.String",
+      "static": false,
+      "strings": [
+        "video_editor_olive_save_max_duration"
+      ],
+      "optional": true
     }
   }
 }

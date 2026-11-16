@@ -18,6 +18,10 @@ public final class Settings {
         return preferences().getInt(key, ModuleSettings.defaultInt(key));
     }
 
+    public static synchronized int getIntOr(String key, int fallback) {
+        return preferences().getInt(key, fallback);
+    }
+
     public static synchronized String getString(String key) {
         return preferences().getString(key, ModuleSettings.defaultString(key));
     }

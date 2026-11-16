@@ -14,6 +14,7 @@ void hookExport(HookFunction hook, void *handle, const char *symbol, void *repla
 
 // POP port: redirect POP retro settings and Meishe LUT reads to the app-private copies.
 void installPopPathRemap(HookFunction hook);
+void onLibraryLoadedForPopTint(HookFunction hook, const char *name, void *handle);
 
 // Natural photo mode (natural_mode.cpp): the edited tuning json and the softening, both per photo.
 void onLibraryLoadedForNatural(const char *name);

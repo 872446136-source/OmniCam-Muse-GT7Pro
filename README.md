@@ -8,10 +8,10 @@
 | 相机 / 相册 | `com.oplus.camera` 7.013.51 / `com.coloros.gallery3d` 17.10.41 |
 | 模块 ID | `ricoh_pop_x9u` |
 | 设置应用 | `local.jiege.camera`（随模块一起安装） |
-| 当前版本 | Muse GT7Pro 513（versionCode 513） |
+| 当前本地版本 | Muse GT7Pro 514-local（versionCode 514） |
 | 上游基线 | Muse 4.4.4（`benbaobaoshigemi/OmniCam-Muse`） |
 
-正式版源码保存在 `release/513`，后续开发测试源码保存在 `test/514`。分支说明见 [版本分支](docs/BRANCHES.md)。
+514 在本地编译，源码保存在 `test/514`；513 正式版源码保存在 `release/513`，分支说明见 [版本分支](docs/BRANCHES.md)。514 增加大师色彩实时切换、分引擎曝光、视频美颜规格和实况导出时长开关。完整 Opus 2.0.0 日志及未完成项见 [上游更新与适配记录](docs/UPSTREAM-OPUS-200.md)，测试步骤见 [514 本地测试说明](docs/RELEASE-514.md)。当前仍使用原有 Muse 核心，新胶片引擎、COUI 和新版水印尚未完成。
 
 本仓库是**完整版**：只有一个包，没有 Lite 分支，也没有 Lite 功能表。所有功能都编译进同一个 APK，装到手机上时再按本机实际能力逐项决定开不开——挂载缺了、符号对不上、模式表里没有的，那一项就不装。设置应用的「注入状态」页会列出每一项的结果和原因，不用看日志猜。
 

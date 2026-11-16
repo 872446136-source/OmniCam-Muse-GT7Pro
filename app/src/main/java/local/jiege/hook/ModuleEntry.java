@@ -17,6 +17,7 @@ import local.jiege.hook.filters.FilterGroupInjector;
 import local.jiege.hook.gallery.AddressNavigation;
 import local.jiege.hook.gallery.BatchWatermark;
 import local.jiege.hook.gallery.WatermarkSeriesUnlock;
+import local.jiege.hook.gallery.VideoOliveDuration;
 import local.jiege.hook.gr.GrPort;
 import local.jiege.hook.guard.PresenterGuard;
 import local.jiege.hook.guard.UnmountedGuard;
@@ -43,6 +44,7 @@ import local.jiege.hook.softlight.SoftLight;
 import local.jiege.hook.tilt.TiltShiftCapture;
 import local.jiege.hook.unlock25mp.Unlock25mp;
 import local.jiege.hook.video.VideoFilterHighSpec;
+import local.jiege.hook.video.VideoBeautyHighSpec;
 import local.jiege.hook.watermark.HasselCameraPage;
 import local.jiege.hook.watermark.HasselResources;
 import local.jiege.hook.watermark.HasselWatermark;
@@ -119,6 +121,7 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         String noData = "模块的 /odm 数据层没挂载：确认模块已启用、magic_mount_rs 已安装，然后重启";
 
         Install.run("相册地址跳转", true, "", () -> AddressNavigation.installGallery(classLoader));
+        Install.run("视频编辑实况时长", true, "", () -> VideoOliveDuration.installGallery(classLoader));
         Install.run("水印系列解锁", true, "", () -> WatermarkSeriesUnlock.installGallery(classLoader));
         // 486: the HASSELBLAD group of the master-watermark list is built from a count this realme
         // build answers 0 for, so the heading shows with nothing under it. The artwork is in the APK.
@@ -205,6 +208,7 @@ public final class ModuleEntry implements IXposedHookLoadPackage, IXposedHookZyg
         Install.run("快门声", true, "", () -> ShutterSound.installCamera(classLoader));
         Install.run("模式状态分离", true, "", () -> ModeStateSplit.installCamera(classLoader));
         Install.run("4K60 滤镜", true, "", () -> VideoFilterHighSpec.installCamera(classLoader));
+        Install.run("视频美颜规格", true, "", () -> VideoBeautyHighSpec.installCamera(classLoader));
         Install.run("机型伪装", true, "", () -> ModelSpoof.installCamera(classLoader));
         Install.run("视频水印保护", true, "", () -> VideoWatermarkGuard.installCamera(classLoader));
         Install.run("哈苏相机水印资源", true, "", () -> HasselResources.installCamera(classLoader));

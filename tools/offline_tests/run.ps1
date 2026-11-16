@@ -41,11 +41,17 @@ $sources += (Join-Path $project 'app/src/main/java/local/jiege/settings/LaunchMo
 $sources += (Join-Path $project 'app/src/main/java/local/jiege/settings/ModelPresets.java')
 $sources += (Join-Path $PSScriptRoot 'MasterLooksOfflineTest.java')
 $sources += (Join-Path $project 'app/src/main/java/local/jiege/settings/MasterLooks.java')
+$sources += (Join-Path $project 'app/src/main/java/local/jiege/settings/MasterAlign.java')
+$sources += (Join-Path $project 'app/src/main/java/local/jiege/settings/MasterAlignTable.java')
+$sources += (Join-Path $project 'app/src/main/java/local/jiege/settings/MasterExposure.java')
+$sources += (Join-Path $PSScriptRoot 'MasterExposureOfflineTest.java')
 $sources += (Join-Path $PSScriptRoot 'StoreOfflineTest.java')
 $sources += (Join-Path $PSScriptRoot 'FiltersOfflineTest.java')
 $sources += (Join-Path $PSScriptRoot 'LutBakerOfflineTest.java')
 $sources += (Join-Path $PSScriptRoot 'XpanCropOfflineTest.java')
 $sources += (Join-Path $project 'app/src/main/java/local/jiege/hook/xpan/XpanCropMath.java')
+$sources += (Join-Path $PSScriptRoot 'PopTintOfflineTest.java')
+$sources += (Join-Path $project 'app/src/main/java/local/jiege/hook/pop/PopTintMath.java')
 & javac -encoding UTF-8 -d $out -cp "$out;$xposed;$android" $sources
 if ($LASTEXITCODE -ne 0) { throw 'offline test compile failed' }
 & java '-Dfile.encoding=UTF-8' -cp "$out;$xposed;$android" FiltersOfflineTest
@@ -57,10 +63,16 @@ if ($LASTEXITCODE -ne 0) { throw 'store tests failed' }
 
 & java -cp $out MasterLooksOfflineTest
 if ($LASTEXITCODE -ne 0) { throw "master colour tests failed" }
+& java -cp $out MasterExposureOfflineTest
+if ($LASTEXITCODE -ne 0) { throw 'master exposure tests failed' }
 & java -cp $out XpanCropOfflineTest
 if ($LASTEXITCODE -ne 0) { throw 'XPAN geometry tests failed' }
+& java -cp $out PopTintOfflineTest
+if ($LASTEXITCODE -ne 0) { throw 'POP tint tests failed' }
 $python = if ($env:OMNICAM_PYTHON) { $env:OMNICAM_PYTHON } else { 'python' }
 & $python -m unittest discover -s $PSScriptRoot -p test_pop_resources.py -v
 if ($LASTEXITCODE -ne 0) { throw 'POP resource tests failed' }
 & $python (Join-Path $PSScriptRoot 'hassel_startup_test.py') $android
 if ($LASTEXITCODE -ne 0) { throw 'Hassel startup test failed' }
+& $python (Join-Path $PSScriptRoot 'video_olive_test.py')
+if ($LASTEXITCODE -ne 0) { throw 'video olive duration test failed' }

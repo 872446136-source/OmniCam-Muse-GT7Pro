@@ -1,3 +1,5 @@
+> **514-repair1 恢复备份（2026-11-18）**：本分支根目录保留 `test/514` 原始源码。修复版的原始 APK、脚本、配置及恢复记录见 [recovery/514-repair1](recovery/514-repair1/README.md)。丢失的 repair1 原始工程尚未完整恢复，不能据此声明重编译结果与本地安装包一致。
+
 # OmniCam Muse（GT7 Pro）
 
 真我 GT7 Pro 的相机增强模块。给 `com.oplus.camera` 补回机型策略裁掉的模式与调色资产，另外加一些拍摄、相册和视频相关的功能。代码移植自 [OmniCam-Muse](https://github.com/benbaobaoshigemi/OmniCam-Muse)，原项目面向 OPPO Find X9 Ultra。

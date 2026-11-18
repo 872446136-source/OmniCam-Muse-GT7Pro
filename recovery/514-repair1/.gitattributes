@@ -1,0 +1,4 @@
+*.apk binary
+*.bin binary
+*.protobuf binary
+*.ogg binary

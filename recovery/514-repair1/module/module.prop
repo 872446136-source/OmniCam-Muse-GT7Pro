@@ -1,0 +1,6 @@
+id=ricoh_pop_x9u
+name=OmniCam Muse (GT7Pro)
+version=Muse GT7Pro 514-repair1
+versionCode=514
+author=local-port
+description=514 修复测试版：适配相机 7.006.303 与 7.013.51，修复大师预览、POP 转发与 XPAN 裁切接口；区分渲染器关闭与挂载失败。Opus 新胶片引擎及水印尚未完成。
